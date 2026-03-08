@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.54.0"
+    "@anthropic-ai/sdk": "^0.54.0",
+    "@neondatabase/serverless": "^0.10.4"
   }
 }

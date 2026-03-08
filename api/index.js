@@ -3,6 +3,17 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Neon DB client (only if DATABASE_URL is set)
+let dbClient = null;
+async function getDb() {
+  if (!process.env.DATABASE_URL) return null;
+  if (!dbClient) {
+    const { neon } = await import("@neondatabase/serverless");
+    dbClient = neon(process.env.DATABASE_URL);
+  }
+  return dbClient;
+}
+
 function json(res, data, status = 200) {
   res.status(status).json(data);
 }
@@ -51,36 +62,79 @@ export default async function handler(req, res) {
     }
   }
 
-  // ─── POST /api/images/exercise ───────────────────────────────────────────
+  // ─── BUSCA DE IMAGENS — Pexels + Unsplash + Wger fallback ───────────────────
   if (req.method === "POST" && path === "/images/exercise") {
-    const { exId, exName, searchTerms } = req.body;
+    const { exId, exName, muscles = [], category = "" } = req.body;
     if (!exName) return json(res, { error: "exName obrigatório" }, 400);
-    const primary = searchTerms?.[0] || exName + " exercise gym";
-    const secondary = searchTerms?.[1] || primary;
-    const prompt = `Search for exercise demonstration photos: "${primary}" and "${secondary}".
 
-Find direct image URLs (.jpg, .jpeg, .png, .webp) from reliable fitness sources like upload.wikimedia.org, muscleandstrength.com, verywellfit.com, acefitness.org.
-
-Return ONLY JSON: {"urls":["https://...jpg","https://...png"]}
-
-Rules: URLs must end in .jpg/.jpeg/.png/.webp, show real people performing the exercise, 4-6 URLs.`;
+    // 1. Gera termos de busca em inglês via Claude
+    let searchTerms = [];
     try {
-      const r = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001", max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: prompt }],
+      const termResp = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 150,
+        messages: [{
+          role: "user",
+          content: `Exercise name in Portuguese: "${exName}". Muscles: ${muscles.join(", ")}. Category: ${category}.
+Return ONLY a JSON array with 3 English search terms for finding photos of people performing this exercise in a gym:
+["term 1","term 2","term 3"]
+Terms should be specific and include body part + movement type. Example: ["lat pulldown exercise","cable pulldown gym","pull down back exercise"]`
+        }]
       });
-      const txt = r.content.filter(b => b.type === "text").map(b => b.text).join("");
-      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
-      if (s === -1) return json(res, { urls: [] });
-      const parsed = JSON.parse(txt.slice(s, e + 1));
-      const urls = (parsed.urls || []).filter(u =>
-        typeof u === "string" && u.startsWith("http") && /\.(jpg|jpeg|png|webp)(\?|$)/i.test(u)
-      );
-      return json(res, { urls });
-    } catch (e) {
-      return json(res, { error: e.message, urls: [] }, 500);
+      const termTxt = termResp.content.filter(b=>b.type==="text").map(b=>b.text).join("");
+      const s = termTxt.indexOf("["), e = termTxt.lastIndexOf("]");
+      if (s !== -1) searchTerms = JSON.parse(termTxt.slice(s, e+1));
+    } catch(e) {
+      searchTerms = [exName + " exercise", exName + " gym form"];
     }
+
+    const allUrls = [];
+
+    // 2. Pexels API
+    if (process.env.PEXELS_API_KEY) {
+      for (const term of searchTerms.slice(0,2)) {
+        try {
+          const pr = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(term)}&per_page=4&orientation=landscape`, {
+            headers: { Authorization: process.env.PEXELS_API_KEY }
+          });
+          const pd = await pr.json();
+          (pd.photos||[]).forEach(p => allUrls.push({ url: p.src.large || p.src.original, thumb: p.src.small, source: "Pexels" }));
+        } catch {}
+        if (allUrls.length >= 4) break;
+      }
+    }
+
+    // 3. Unsplash API
+    if (allUrls.length < 4 && process.env.UNSPLASH_ACCESS_KEY) {
+      for (const term of searchTerms.slice(0,2)) {
+        try {
+          const ur = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(term)}&per_page=4&orientation=landscape`, {
+            headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` }
+          });
+          const ud = await ur.json();
+          (ud.results||[]).forEach(p => allUrls.push({ url: p.urls.regular, thumb: p.urls.thumb, source: "Unsplash" }));
+        } catch {}
+        if (allUrls.length >= 4) break;
+      }
+    }
+
+    // 4. Wger exercise database (no key needed, exercise-specific images)
+    if (allUrls.length < 2) {
+      try {
+        const wQuery = searchTerms[0] || exName;
+        const wr = await fetch(`https://wger.de/api/v2/exercise/?format=json&language=2&term=${encodeURIComponent(wQuery)}&limit=5`);
+        const wd = await wr.json();
+        for (const ex of (wd.results||[]).slice(0,3)) {
+          if (ex.id) {
+            const imgr = await fetch(`https://wger.de/api/v2/exerciseimage/?format=json&exercise_base=${ex.id}`);
+            const imgd = await imgr.json();
+            (imgd.results||[]).forEach(img => allUrls.push({ url: img.image, thumb: img.image, source: "Wger" }));
+          }
+        }
+      } catch {}
+    }
+
+    return json(res, { urls: allUrls.slice(0, 6), terms: searchTerms });
   }
 
   // ─── POST /api/treinos/update ─────────────────────────────────────────────
@@ -117,6 +171,39 @@ Retorne APENAS JSON com esta estrutura:
       }
     } catch (e) {
       return json(res, { error: e.message }, 500);
+    }
+  }
+
+  // GET /api/calendar — fetch all marks
+  if (req.method === "GET" && path === "/calendar") {
+    const sql = await getDb();
+    if (!sql) return json(res, { marks: {}, offline: true });
+    try {
+      const rows = await sql`SELECT date_key, marks FROM calendar_marks WHERE user_id = 'default'`;
+      const marks = {};
+      rows.forEach(r => { marks[r.date_key] = r.marks; });
+      return json(res, { marks });
+    } catch(e) {
+      return json(res, { marks: {}, error: e.message });
+    }
+  }
+
+  // POST /api/calendar/mark — save a mark
+  if (req.method === "POST" && (path === "/calendar/mark" || path === "/calendar")) {
+    const { dateKey, marks } = req.body;
+    if (!dateKey) return json(res, { error: "dateKey obrigatório" }, 400);
+    const sql = await getDb();
+    if (!sql) return json(res, { ok: true, offline: true });
+    try {
+      if (!marks || marks.length === 0) {
+        await sql`DELETE FROM calendar_marks WHERE user_id = 'default' AND date_key = ${dateKey}`;
+      } else {
+        await sql`INSERT INTO calendar_marks (user_id, date_key, marks) VALUES ('default', ${dateKey}, ${marks})
+          ON CONFLICT (user_id, date_key) DO UPDATE SET marks = ${marks}, updated_at = NOW()`;
+      }
+      return json(res, { ok: true });
+    } catch(e) {
+      return json(res, { ok: false, error: e.message });
     }
   }
 

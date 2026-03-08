@@ -140,45 +140,22 @@ const EXERCISE_SEARCH_TERMS = {
   "rosca-direta-halter":             ["dumbbell bicep curl exercise","alternating dumbbell curl"],
 };
 
-// ─── WIKIMEDIA COMMONS SEARCH ────────────────────────────────────────────────
-// Busca imagens reais via Wikimedia Commons API (CORS-enabled, free, no key)
-// ─── BUSCA DE IMAGENS VIA CLAUDE WEB SEARCH ──────────────────────────────────
-// Claude usa web_search para encontrar URLs DIRETAS de imagens (.jpg/.png)
-// Apenas api.anthropic.com é permitido no sandbox — sem fetch externo
-async function searchExerciseImages(exId) {
-  const terms = EXERCISE_SEARCH_TERMS[exId];
-  const primary = terms ? terms[0] : exId.replace(/-/g," ") + " exercise";
-  const secondary = terms ? terms[1] || terms[0] : primary;
-
-  const prompt = `Search for exercise photos: "${primary}" and "${secondary}".
-
-Find direct image URLs (.jpg, .jpeg, .png, .webp) from these reliable sources:
-- upload.wikimedia.org (Wikimedia Commons direct image files)
-- muscleandstrength.com
-- verywellfit.com  
-- acefitness.org
-- menshealth.com
-
-Return ONLY a JSON object, no markdown, no text outside JSON:
-{"urls":["https://upload.wikimedia.org/...jpg","https://...jpg","https://...png"]}
-
-Rules:
-- URLs must end in .jpg, .jpeg, .png, or .webp (direct image files only)
-- Must show real people or quality anatomical illustrations performing the exercise
-- NO animated gifs, NO SVG, NO page URLs (only direct image file URLs)
-- Return 4-6 URLs`;
-
-  const txt = await callAIWithSearch([{ role: "user", content: prompt }]);
-  const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
-  if (s === -1) return [];
-  try {
-    const parsed = JSON.parse(txt.slice(s, e + 1));
-    return (parsed.urls || []).filter(u =>
-      typeof u === "string" &&
-      u.startsWith("http") &&
-      u.match(/\.(jpg|jpeg|png|webp)(\?|$)/i)
-    );
-  } catch { return []; }
+// ─── BUSCA DE IMAGENS VIA API (Pexels + Unsplash + Wger) ─────────────────────
+async function searchExerciseImages(exId, exDbRef) {
+  const ex = exDbRef?.[exId] || {};
+  const res = await fetch("/api/images/exercise", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      exId,
+      exName: ex.name || exId.replace(/-/g," "),
+      muscles: ex.muscles || [],
+      category: ex.category || ""
+    })
+  });
+  const d = await res.json();
+  // Return array of URL strings for backward compatibility
+  return (d.urls || []).map(u => typeof u === "string" ? u : u.url).filter(Boolean);
 }
 
 // ─── CONNECTION TEST ──────────────────────────────────────────────────────────
@@ -317,8 +294,8 @@ function ImageUploadModal({ exId, exName, currentImages, onSave, onClose }) {
 }
 
 // ─── AI IMAGE SEARCH MODAL ────────────────────────────────────────────────────
-// Busca imagens via Wikimedia Commons API (CORS-enabled, free, no key needed)
-function AIImageSearchModal({ exId, exName, onSave, onClose }) {
+// Busca imagens via API (Pexels + Unsplash + Wger)
+function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
   const [query, setQuery] = useState(exName);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
@@ -329,49 +306,34 @@ function AIImageSearchModal({ exId, exName, onSave, onClose }) {
   async function search() {
     setLoading(true); setError(""); setResults([]); setSelected([]); setAiTip("");
     try {
-      // Usa Claude web_search para encontrar URLs diretas de imagem
-      // (única abordagem que funciona no sandbox do claude.ai)
-      const searchQuery = EXERCISE_SEARCH_TERMS[exId]?.[0] || (query + " exercise");
-      const searchQuery2 = EXERCISE_SEARCH_TERMS[exId]?.[1] || searchQuery;
+      const ex = exDbProp?.[exId] || {};
+      const res = await fetch("/api/images/exercise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exId,
+          exName: ex.name || query || exName,
+          muscles: ex.muscles || [],
+          category: ex.category || ""
+        })
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
 
-      const prompt = `Search for exercise demonstration photos: "${searchQuery}" and also "${searchQuery2}".
+      const imageObjects = (d.urls || []).map(item => {
+        if (typeof item === "string") return { url: item, thumb: item, source: "web" };
+        return item;
+      }).filter(item => item.url);
 
-I need DIRECT image file URLs (.jpg, .jpeg, .png, .webp) showing real people or quality anatomical illustrations performing this exercise.
+      if (!imageObjects.length) throw new Error("Não foram encontradas imagens. Tente Upload manual.");
 
-Search these sources specifically:
-1. upload.wikimedia.org (search Wikimedia Commons for the exercise)  
-2. muscleandstrength.com images
-3. verywellfit.com images
-4. menshealth.com images
-
-Return ONLY this JSON (no markdown, no text before or after):
-{"urls":["https://upload.wikimedia.org/...file.jpg","https://...file.jpg","https://...file.png"],"found":true}
-
-Critical rules:
-- ONLY URLs ending in .jpg, .jpeg, .png, or .webp
-- ONLY direct image file URLs, NOT webpage URLs
-- Show real people exercising OR quality anatomical muscle diagrams
-- NO animated gifs, NO SVGs, NO page links
-- Return 4-6 URLs minimum`;
-
-      const txt = await callAIWithSearch([{ role: "user", content: prompt }]);
-      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
-      if (s === -1) throw new Error("Nenhuma imagem encontrada. Tente Upload manual.");
-
-      const parsed = JSON.parse(txt.slice(s, e + 1));
-      const validUrls = (parsed.urls || []).filter(u =>
-        typeof u === "string" && u.startsWith("http") &&
-        u.match(/\.(jpg|jpeg|png|webp)(\?|$)/i)
-      );
-
-      if (!validUrls.length) throw new Error("Não foram encontradas imagens diretas. Tente Upload.");
-
-      setResults(validUrls.map(url => {
-        let source = "web";
-        try { source = new URL(url).hostname.replace("www.",""); } catch {}
-        return { url, label: searchQuery, source };
-      }));
-      setAiTip(`${validUrls.length} imagens encontradas`);
+      setResults(imageObjects.map(item => ({
+        url: item.url,
+        thumb: item.thumb || item.url,
+        label: query || exName,
+        source: item.source || "web"
+      })));
+      setAiTip(`${imageObjects.length} imagens encontradas${d.terms?.length ? ` — termos: ${d.terms.slice(0,2).join(", ")}` : ""}`);
     } catch (e) {
       setError(e.message);
     }
@@ -491,7 +453,7 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
   useEffect(() => {
     if (!hasUserImgs && !hasEmbedded && !webImgs && !webLoading) {
       setWebLoading(true);
-      searchExerciseImages(exId)
+      searchExerciseImages(exId, db)
         .then(urls => { if (urls.length) { setWebImgs(urls); setImgError({}); } })
         .catch(() => {/* silencioso — fallback já existe */})
         .finally(() => setWebLoading(false));
@@ -644,7 +606,7 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
         <AIImageSearchModal
           exId={exId}
           exName={name}
-          
+          exDb={db}
           onSave={urls => onSaveImages(exId, [...(userImages?.[exId]||[]), ...urls])}
           onClose={() => setShowAISearch(false)}
         />
@@ -694,8 +656,41 @@ function ExCard({ exId, s, r, db, userImages, onOpen, logKey, logs, onLog }) {
   );
 }
 
+// ─── FEEDBACK MODAL ───────────────────────────────────────────────────────────
+function FeedbackModal({ onSubmit, onSkip }) {
+  const [period, setPeriod] = useState("");
+  const [health, setHealth] = useState("");
+  const [goals, setGoals] = useState("");
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",padding:16}}>
+      <div style={{background:"#13131a",border:"1px solid #3b82f6",borderRadius:20,width:"100%",maxWidth:480,padding:24}}>
+        <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",letterSpacing:3,color:"#3b82f6",marginBottom:4}}>🎯 FIM DO MÊS</h3>
+        <p style={{fontSize:".78rem",color:"#9ca3af",marginBottom:18}}>Compartilhe seu feedback para que a IA monte o melhor treino avulso do próximo mês.</p>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div>
+            <label style={{fontSize:".7rem",fontWeight:800,color:"#6b7280",letterSpacing:1,display:"block",marginBottom:5}}>COMO FOI O PERÍODO? (energia, recuperação, motivação)</label>
+            <textarea value={period} onChange={e=>setPeriod(e.target.value)} rows={2} placeholder="Ex: Semana boa, energia alta, recuperei bem entre os treinos..." style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"10px 12px",color:"#f0f0f8",fontSize:".82rem",resize:"none",outline:"none",boxSizing:"border-box"}} />
+          </div>
+          <div>
+            <label style={{fontSize:".7rem",fontWeight:800,color:"#6b7280",letterSpacing:1,display:"block",marginBottom:5}}>SAÚDE ATUAL (dores, lesões, limitações)</label>
+            <textarea value={health} onChange={e=>setHealth(e.target.value)} rows={2} placeholder="Ex: Leve dor no joelho esquerdo, ombro direito ok..." style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"10px 12px",color:"#f0f0f8",fontSize:".82rem",resize:"none",outline:"none",boxSizing:"border-box"}} />
+          </div>
+          <div>
+            <label style={{fontSize:".7rem",fontWeight:800,color:"#6b7280",letterSpacing:1,display:"block",marginBottom:5}}>OBJETIVOS PARA O PRÓXIMO MÊS</label>
+            <textarea value={goals} onChange={e=>setGoals(e.target.value)} rows={2} placeholder="Ex: Focar mais em pernas, aumentar intensidade no core..." style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"10px 12px",color:"#f0f0f8",fontSize:".82rem",resize:"none",outline:"none",boxSizing:"border-box"}} />
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:18}}>
+          <button onClick={onSkip} style={{flex:1,padding:11,borderRadius:11,border:"1px solid #2a2a3a",background:"#1a1a24",color:"#6b7280",fontWeight:800,cursor:"pointer",fontSize:".82rem"}}>Pular</button>
+          <button onClick={()=>onSubmit({period,health,goals})} style={{flex:2,padding:11,borderRadius:11,border:"none",background:"#3b82f6",color:"#fff",fontWeight:900,cursor:"pointer",fontSize:".82rem"}}>✨ Gerar Treino do Mês</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── UPDATE TREINO PANEL ──────────────────────────────────────────────────────
-function UpdatePanel({ onClose }) {
+function UpdatePanel({ onClose, feedbackData, currentTreinos, exDb: exDbProp, onApply }) {
   const [mode, setMode] = useState("auto");
   const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(false);
@@ -703,24 +698,28 @@ function UpdatePanel({ onClose }) {
 
   async function generate() {
     setLoading(true); setResult("");
-    const prompt = `Você é personal trainer especialista em hipertrofia e condicionamento esportivo para vôlei e futebol.
-
-TREINOS DO PERSONAL (NÃO REPETIR grupos musculares):
-Treino A Personal (Ter/Sex): Supino inclinado barra 3x12, Terra 2 halteres 3x12, Apoio de frente 3x(max), Hack 3x12, Crucifixo halteres banco reto 3x12, Copenhagen banco 3x10/10, Tríceps máquina 3x15, Prancha 3x15
-Treino B Personal (Ter/Sex): Búlgaro kb 3x10/10, Barra c/ apoio 3x12, Prancha alta 3x40s, Leg horizontal unil 3x12/12, Remada curvada 3x12/12, Panturrilha leg 3x20, Extensão ombros c/ rotação 3x12/12, Abdução quadril máquina 3x12, Rosca unil polia alta 3x12/12
-
-REGRAS:
-- Treino A avulso (Segunda): cobrir costas, ombros, isquiotibiais, bíceps, panturrilha
-- Treino B avulso (Quarta): cobrir peito, tríceps, glúteo máximo, core
-- Exercícios seguros para condromalácia patelar
-- Objetivo: hipertrofia + queima gordura + explosão esportiva
-${mode==="auto" ? "- MODO AUTOMÁTICO: mude os exercícios para novos estímulos mantendo os grupos musculares" : `- ORIENTAÇÕES: ${feedback}`}
-
-Gere planilha completa com Treino A e B, cada um com 3 blocos e 3 exercícios por bloco. Formato claro em português.`;
-
     try {
-      const txt = await callAI([{role:"user",content:prompt}]);
-      setResult(txt);
+      const feedbackStr = feedbackData
+        ? `Período: ${feedbackData.period || "não informado"}. Saúde: ${feedbackData.health || "não informado"}. Objetivos: ${feedbackData.goals || "não informado"}.`
+        : (mode === "custom" ? feedback : "Otimize os treinos mantendo volume e progressão adequados.");
+      const res = await fetch("/api/treinos/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentTreinos: currentTreinos || {},
+          feedback: feedbackStr,
+          exerciseDb: exDbProp || {},
+        }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      const parsed = d.parsed;
+      if (parsed?.treinos?.A && parsed?.treinos?.B && onApply) {
+        onApply({ A: parsed.treinos.A, B: parsed.treinos.B });
+        setResult((parsed.justificativa || "") + "\n\n✅ Treinos A e B atualizados com sucesso!");
+      } else {
+        setResult(d.text || "Treino gerado (sem estrutura JSON válida para aplicar automaticamente).");
+      }
     } catch(e) { setResult("Erro: " + e.message); }
     setLoading(false);
   }
@@ -769,6 +768,10 @@ export default function App() {
   const [detailEx, setDetailEx] = useState(null);
   const [dayModal, setDayModal] = useState(null);
   const [dayOpts, setDayOpts] = useState({A:false,B:false,PA:false,PB:false,miss:false});
+  const [allTreinos, setAllTreinos] = useState(() => LS.get("tm7-treinos", ALL_TREINOS));
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [monthFeedback, setMonthFeedback] = useState(() => LS.get("tm7-feedback", {}));
+  const [feedbackText, setFeedbackText] = useState({period:"", health:"", goals:""});
   const [showUpdate, setShowUpdate] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [rotina, setRotina] = useState(() => LS.get("tm7-rotina", {
@@ -805,12 +808,41 @@ export default function App() {
     }
   }
 
+  // Cloud calendar sync
+  const [syncStatus, setSyncStatus] = useState("idle"); // "idle"|"syncing"|"synced"|"offline"
+
+  useEffect(() => {
+    // Load marks from cloud on mount
+    setSyncStatus("syncing");
+    fetch("/api/calendar")
+      .then(r => r.json())
+      .then(d => {
+        if (d.marks && Object.keys(d.marks).length > 0) {
+          setMarks(prev => ({...prev, ...d.marks}));
+        }
+        setSyncStatus(d.offline ? "offline" : "synced");
+      })
+      .catch(() => setSyncStatus("offline"));
+  }, []);
+
+  async function saveMarkToCloud(dateKey, markArray) {
+    try {
+      await fetch("/api/calendar/mark", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ dateKey, marks: markArray })
+      });
+    } catch {}
+  }
+
   useEffect(() => LS.set("tm7-marks", marks), [marks]);
   useEffect(() => LS.set("tm7-logs", logs), [logs]);
   useEffect(() => LS.set("tm7-exdb", exDb), [exDb]);
   useEffect(() => LS.set("tm7-imgs", userImages), [userImages]);
   useEffect(() => LS.set("tm7-rotina", rotina), [rotina]);
   useEffect(() => LS.set("tm7-plogs", plogs), [plogs]);
+  useEffect(() => { if(allTreinos) LS.set("tm7-treinos", allTreinos); }, [allTreinos]);
+  useEffect(() => { if(monthFeedback) LS.set("tm7-feedback", monthFeedback); }, [monthFeedback]);
 
   function updateEx(id, data) { setExDb(p => ({...p,[id]:data})); }
   function updateLog(k,v) { setLogs(p => ({...p,[k]:v})); }
@@ -840,7 +872,7 @@ export default function App() {
   }
 
   function renderTreino(tk) {
-    const t = ALL_TREINOS[tk]; if (!t) return null;
+    const t = allTreinos[tk]; if (!t) return null;
     return t.blocos.map((bl,bi) => (
       <div key={bi} style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:14,marginBottom:14,overflow:"hidden"}}>
         <div style={{padding:"10px 16px",background:t.color+"11",borderLeft:`4px solid ${t.color}`,borderBottom:"1px solid #2a2a3a",display:"flex",alignItems:"center",gap:10}}>
@@ -876,6 +908,26 @@ export default function App() {
     (ex.muscles||[]).join(" ").toLowerCase().includes(searchQ.toLowerCase()) ||
     (ex.category||"").toLowerCase().includes(searchQ.toLowerCase())
   );
+
+  function getAvulsoEligibility() {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth();
+    const daysInMonth = new Date(y, m+1, 0).getDate();
+    const isEndOfMonth = now.getDate() >= daysInMonth - 3;
+    let possible = 0, completed = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(y, m, d).getDay();
+      if (dow === 1 || dow === 3) {
+        possible++;
+        const mk = marks?.[`${y}-${m}-${d}`] || [];
+        if (mk.includes("A") || mk.includes("B")) completed++;
+      }
+    }
+    const pct = possible > 0 ? (completed / possible) : 0;
+    const feedbackKey = `${y}-${m}`;
+    const alreadyUpdated = monthFeedback?.[feedbackKey]?.applied;
+    return { eligible: isEndOfMonth && pct > 0.5 && !alreadyUpdated, pct, completed, possible };
+  }
 
   const navs = [{id:"treinos",icon:"🏋️",l:"Treinos"},{id:"personal",icon:"👨‍💼",l:"Personal"},{id:"calendario",icon:"📅",l:"Calendário"},{id:"exercicios",icon:"📖",l:"Exercícios"},{id:"rotina",icon:"📋",l:"Rotina"}];
 
@@ -934,9 +986,20 @@ export default function App() {
               ))}
             </div>
             {renderTreino(tab)}
-            <button onClick={()=>setShowUpdate(true)} style={{width:"100%",background:"rgba(59,130,246,.1)",border:"2px solid rgba(59,130,246,.3)",borderRadius:14,padding:"14px",color:"#60a5fa",fontWeight:900,fontSize:".85rem",cursor:"pointer",marginTop:8}}>
-              🔄 Atualizar Treinos com IA
-            </button>
+            {(() => {
+              const el = getAvulsoEligibility();
+              if (!el.eligible) return null;
+              return (
+                <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.25)",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+                  <div style={{fontSize:".7rem",color:"#9ca3af",marginBottom:6}}>
+                    ✅ {el.completed}/{el.possible} treinos avulsos ({Math.round(el.pct*100)}%) — elegível para atualização!
+                  </div>
+                  <button onClick={()=>setShowFeedbackModal(true)} style={{width:"100%",background:"linear-gradient(135deg,#3b82f6,#6366f1)",border:"none",borderRadius:10,color:"#fff",fontWeight:900,padding:"11px 16px",cursor:"pointer",fontSize:".85rem",letterSpacing:.5}}>
+                    ✨ Gerar Treino Avulso do Próximo Mês
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1003,7 +1066,13 @@ export default function App() {
             <div style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:16,padding:18}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
                 <button onClick={()=>{let m=calM-1,y=calY;if(m<0){m=11;y--;}setCalM(m);setCalY(y);}} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,color:"#f0f0f8",padding:"5px 13px",cursor:"pointer",fontSize:"1rem"}}>‹</button>
-                <h2 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",letterSpacing:3}}>{MESES[calM]} {calY}</h2>
+                <div style={{textAlign:"center"}}>
+                  <h2 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",letterSpacing:3,margin:0}}>{MESES[calM]} {calY}</h2>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:".6rem",color: syncStatus==="synced"?"#22c55e":syncStatus==="offline"?"#ef4444":"#f59e0b",marginTop:3}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:"currentColor"}} />
+                    {syncStatus==="synced"?"Sincronizado":syncStatus==="offline"?"Offline":"Sincronizando..."}
+                  </div>
+                </div>
                 <button onClick={()=>{let m=calM+1,y=calY;if(m>11){m=0;y++;}setCalM(m);setCalY(y);}} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,color:"#f0f0f8",padding:"5px 13px",cursor:"pointer",fontSize:"1rem"}}>›</button>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}}>
@@ -1128,8 +1197,8 @@ export default function App() {
             ))}
             <div style={{display:"flex",gap:8,marginTop:14}}>
               <button onClick={()=>setDayModal(null)} style={{flex:1,padding:11,borderRadius:11,border:"none",background:"#1a1a24",color:"#6b7280",fontWeight:900,cursor:"pointer"}}>Cancelar</button>
-              <button onClick={()=>{const k=`${calY}-${calM}-${dayModal}`;const nm={...marks};delete nm[k];setMarks(nm);setDayModal(null);}} style={{flex:1,padding:11,borderRadius:11,border:"1px solid rgba(239,68,68,.3)",background:"rgba(239,68,68,.1)",color:"#f87171",fontWeight:900,cursor:"pointer"}}>Limpar</button>
-              <button onClick={()=>{const k=`${calY}-${calM}-${dayModal}`;const chosen=[];if(dayOpts.miss)chosen.push("miss");else["A","B","PA","PB"].forEach(t=>{if(dayOpts[t])chosen.push(t);});if(!chosen.length){const nm={...marks};delete nm[k];setMarks(nm);}else setMarks(p=>({...p,[k]:chosen}));setDayModal(null);}} style={{flex:1,padding:11,borderRadius:11,border:"none",background:"#3b82f6",color:"#fff",fontWeight:900,cursor:"pointer"}}>Salvar</button>
+              <button onClick={()=>{const k=`${calY}-${calM}-${dayModal}`;const nm={...marks};delete nm[k];setMarks(nm);saveMarkToCloud(k,[]);setDayModal(null);}} style={{flex:1,padding:11,borderRadius:11,border:"1px solid rgba(239,68,68,.3)",background:"rgba(239,68,68,.1)",color:"#f87171",fontWeight:900,cursor:"pointer"}}>Limpar</button>
+              <button onClick={()=>{const k=`${calY}-${calM}-${dayModal}`;const chosen=[];if(dayOpts.miss)chosen.push("miss");else["A","B","PA","PB"].forEach(t=>{if(dayOpts[t])chosen.push(t);});if(!chosen.length){const nm={...marks};delete nm[k];setMarks(nm);saveMarkToCloud(k,[]);}else{setMarks(p=>({...p,[k]:chosen}));saveMarkToCloud(k,chosen);}setDayModal(null);}} style={{flex:1,padding:11,borderRadius:11,border:"none",background:"#3b82f6",color:"#fff",fontWeight:900,cursor:"pointer"}}>Salvar</button>
             </div>
           </div>
         </div>
@@ -1148,8 +1217,38 @@ export default function App() {
         />
       )}
 
+      {/* ── FEEDBACK MODAL ── */}
+      {showFeedbackModal && (
+        <FeedbackModal
+          onSubmit={(fb) => {
+            const now = new Date();
+            const key = `${now.getFullYear()}-${now.getMonth()}`;
+            setMonthFeedback(p => ({...p, [key]: {...fb, submittedAt: Date.now()}}));
+            setShowFeedbackModal(false);
+            setShowUpdate({feedback: fb});
+          }}
+          onSkip={() => {
+            setShowFeedbackModal(false);
+            setShowUpdate({feedback: null});
+          }}
+        />
+      )}
+
       {/* ── UPDATE PANEL ── */}
-      {showUpdate && <UpdatePanel onClose={()=>setShowUpdate(false)}  />}
+      {showUpdate && (
+        <UpdatePanel
+          onClose={() => setShowUpdate(false)}
+          feedbackData={showUpdate?.feedback}
+          currentTreinos={allTreinos}
+          exDb={exDb}
+          onApply={(newTreinos) => {
+            const now = new Date();
+            const key = `${now.getFullYear()}-${now.getMonth()}`;
+            setAllTreinos(p => ({...p, A: newTreinos.A, B: newTreinos.B}));
+            setMonthFeedback(p => ({...p, [key]: {...(p[key]||{}), applied: true}}));
+          }}
+        />
+      )}
     </div>
   );
 }
