@@ -62,64 +62,96 @@ export default async function handler(req, res) {
     }
   }
 
-  // ─── BUSCA DE IMAGENS — Pexels + Unsplash + Wger fallback ───────────────────
+  // ─── BUSCA DE IMAGENS E VÍDEOS — Google Custom Search + YouTube ─────────────
   if (req.method === "POST" && path === "/images/exercise") {
     const { exId, exName, muscles = [], category = "" } = req.body;
     if (!exName) return json(res, { error: "exName obrigatório" }, 400);
 
-    // 1. Gera termos de busca em inglês via Claude
+    const GKEY = process.env.GOOGLE_API_KEY;
+    const GCSE = process.env.GOOGLE_CSE_ID;
+
+    // 1. Claude gera termos de busca precisos em inglês
     let searchTerms = [];
     try {
       const termResp = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 150,
+        max_tokens: 200,
         messages: [{
           role: "user",
-          content: `Exercise name in Portuguese: "${exName}". Muscles: ${muscles.join(", ")}. Category: ${category}.
-Return ONLY a JSON array with 3 English search terms for finding photos of people performing this exercise in a gym:
-["term 1","term 2","term 3"]
-Terms should be specific and include body part + movement type. Example: ["lat pulldown exercise","cable pulldown gym","pull down back exercise"]`
+          content: `You are a fitness expert. Translate this exercise to precise English search terms for Google Image Search.
+
+Exercise (Portuguese): "${exName}"
+Primary muscles: ${muscles.slice(0,3).join(", ")}
+Category: ${category}
+
+Rules:
+- Terms must refer to a REAL gym exercise with equipment/technique
+- Include the equipment type when relevant (barbell, dumbbell, cable, machine, etc.)
+- Include "exercise" or "gym" or "how to" in each term
+- Terms must be specific enough to find photos of PEOPLE PERFORMING this exact movement
+
+Return ONLY a JSON object:
+{
+  "imageTerms": ["<most specific term for image search>", "<alternative term>"],
+  "videoTerm": "<best term for YouTube search of this exercise tutorial>"
+}`
         }]
       });
-      const termTxt = termResp.content.filter(b=>b.type==="text").map(b=>b.text).join("");
-      const s = termTxt.indexOf("["), e = termTxt.lastIndexOf("]");
-      if (s !== -1) searchTerms = JSON.parse(termTxt.slice(s, e+1));
-    } catch(e) {
-      searchTerms = [exName + " exercise", exName + " gym form"];
-    }
+      const txt = termResp.content.filter(b=>b.type==="text").map(b=>b.text).join("");
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s !== -1) {
+        const parsed = JSON.parse(txt.slice(s, e+1));
+        searchTerms = parsed.imageTerms || [];
+        if (parsed.videoTerm) searchTerms._videoTerm = parsed.videoTerm;
+      }
+    } catch(_) {}
+    if (!searchTerms.length) searchTerms = [exName + " exercise gym", exName + " how to gym"];
 
-    const allUrls = [];
+    const images = [];
+    const videos = [];
 
-    // 2. Pexels API
-    if (process.env.PEXELS_API_KEY) {
+    // 2. Google Custom Search API — imagens
+    if (GKEY && GCSE) {
       for (const term of searchTerms.slice(0,2)) {
+        if (images.length >= 8) break;
         try {
-          const pr = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(term)}&per_page=4&orientation=landscape`, {
-            headers: { Authorization: process.env.PEXELS_API_KEY }
+          const url = `https://www.googleapis.com/customsearch/v1?key=${GKEY}&cx=${GCSE}&searchType=image&q=${encodeURIComponent(term)}&num=8&imgType=photo&imgSize=large&safe=active&rights=cc_publicdomain,cc_attribute,cc_sharealike`;
+          const r = await fetch(url);
+          const d = await r.json();
+          (d.items || []).forEach(item => {
+            if (images.length < 12) {
+              images.push({
+                url: item.link,
+                thumb: item.image?.thumbnailLink || item.link,
+                source: "Google",
+                title: item.title,
+              });
+            }
           });
-          const pd = await pr.json();
-          (pd.photos||[]).forEach(p => allUrls.push({ url: p.src.large || p.src.original, thumb: p.src.small, source: "Pexels" }));
-        } catch {}
-        if (allUrls.length >= 4) break;
+        } catch(_) {}
       }
     }
 
-    // 3. Unsplash API
-    if (allUrls.length < 4 && process.env.UNSPLASH_ACCESS_KEY) {
-      for (const term of searchTerms.slice(0,2)) {
-        try {
-          const ur = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(term)}&per_page=4&orientation=landscape`, {
-            headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}` }
+    // 3. YouTube Data API v3 — vídeos de demonstração
+    if (GKEY) {
+      const videoQuery = searchTerms._videoTerm || (searchTerms[0] + " tutorial");
+      try {
+        const ytUrl = `https://www.googleapis.com/youtube/v3/search?key=${GKEY}&q=${encodeURIComponent(videoQuery)}&type=video&part=snippet&maxResults=6&videoEmbeddable=true&videoDuration=medium&relevanceLanguage=pt&order=relevance`;
+        const yr = await fetch(ytUrl);
+        const yd = await yr.json();
+        (yd.items || []).forEach(item => {
+          videos.push({
+            videoId: item.id?.videoId,
+            title: item.snippet?.title,
+            channel: item.snippet?.channelTitle,
+            thumb: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
           });
-          const ud = await ur.json();
-          (ud.results||[]).forEach(p => allUrls.push({ url: p.urls.regular, thumb: p.urls.thumb, source: "Unsplash" }));
-        } catch {}
-        if (allUrls.length >= 4) break;
-      }
+        });
+      } catch(_) {}
     }
 
-    // 4. Wger exercise database (no key needed, exercise-specific images)
-    if (allUrls.length < 2) {
+    // 4. Wger fallback para imagens se Google não configurado
+    if (images.length < 2) {
       try {
         const wQuery = searchTerms[0] || exName;
         const wr = await fetch(`https://wger.de/api/v2/exercise/?format=json&language=2&term=${encodeURIComponent(wQuery)}&limit=5`);
@@ -128,13 +160,19 @@ Terms should be specific and include body part + movement type. Example: ["lat p
           if (ex.id) {
             const imgr = await fetch(`https://wger.de/api/v2/exerciseimage/?format=json&exercise_base=${ex.id}`);
             const imgd = await imgr.json();
-            (imgd.results||[]).forEach(img => allUrls.push({ url: img.image, thumb: img.image, source: "Wger" }));
+            (imgd.results||[]).forEach(img => images.push({ url: img.image, thumb: img.image, source: "Wger" }));
           }
         }
-      } catch {}
+      } catch(_) {}
     }
 
-    return json(res, { urls: allUrls.slice(0, 6), terms: searchTerms });
+    return json(res, {
+      images: images.slice(0, 9),
+      videos: videos.filter(v => v.videoId).slice(0, 6),
+      terms: searchTerms,
+      // Backward compat: urls field para código legado
+      urls: images.slice(0, 6).map(i => ({ url: i.url, thumb: i.thumb, source: i.source })),
+    });
   }
 
   // ─── POST /api/treinos/update ─────────────────────────────────────────────

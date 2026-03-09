@@ -296,47 +296,35 @@ function ImageUploadModal({ exId, exName, currentImages, onSave, onClose }) {
 // ─── AI IMAGE SEARCH MODAL ────────────────────────────────────────────────────
 // Busca imagens via API (Pexels + Unsplash + Wger)
 function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
-  const [query, setQuery] = useState(exName);
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState([]);
+  const [images, setImages] = useState([]);
+  const [videos, setVideos] = useState([]);
   const [selected, setSelected] = useState([]);
   const [error, setError] = useState("");
-  const [aiTip, setAiTip] = useState("");
+  const [terms, setTerms] = useState([]);
+  const [activeVideo, setActiveVideo] = useState(null); // videoId sendo exibido
 
   async function search() {
-    setLoading(true); setError(""); setResults([]); setSelected([]); setAiTip("");
+    setLoading(true); setError(""); setImages([]); setVideos([]); setSelected([]); setTerms([]); setActiveVideo(null);
     try {
       const ex = exDbProp?.[exId] || {};
       const res = await fetch("/api/images/exercise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          exId,
-          exName: ex.name || query || exName,
-          muscles: ex.muscles || [],
-          category: ex.category || ""
-        })
+        body: JSON.stringify({ exId, exName: ex.name || exName, muscles: ex.muscles || [], category: ex.category || "" })
       });
       const d = await res.json();
       if (d.error) throw new Error(d.error);
 
-      const imageObjects = (d.urls || []).map(item => {
-        if (typeof item === "string") return { url: item, thumb: item, source: "web" };
-        return item;
-      }).filter(item => item.url);
+      const imgs = (d.images || d.urls || []).map(i => typeof i === "string" ? { url: i, thumb: i, source: "web" } : i).filter(i => i.url);
+      const vids = (d.videos || []).filter(v => v.videoId);
 
-      if (!imageObjects.length) throw new Error("Não foram encontradas imagens. Tente Upload manual.");
+      if (!imgs.length && !vids.length) throw new Error("Nenhum resultado encontrado. Configure GOOGLE_API_KEY e GOOGLE_CSE_ID no Vercel.");
 
-      setResults(imageObjects.map(item => ({
-        url: item.url,
-        thumb: item.thumb || item.url,
-        label: query || exName,
-        source: item.source || "web"
-      })));
-      setAiTip(`${imageObjects.length} imagens encontradas${d.terms?.length ? ` — termos: ${d.terms.slice(0,2).join(", ")}` : ""}`);
-    } catch (e) {
-      setError(e.message);
-    }
+      setImages(imgs);
+      setVideos(vids);
+      setTerms(d.terms || []);
+    } catch (e) { setError(e.message); }
     setLoading(false);
   }
 
@@ -346,85 +334,124 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
     setSelected(p => p.includes(url) ? p.filter(u => u !== url) : [...p, url]);
   }
 
+  const Spinner = () => (
+    <span style={{width:14,height:14,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .7s linear infinite",display:"inline-block"}} />
+  );
+
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",padding:16}} onClick={onClose}>
-      <div style={{background:"#13131a",border:"1px solid #60a5fa",borderRadius:20,width:"100%",maxWidth:540,maxHeight:"88vh",overflowY:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.1rem",letterSpacing:3,color:"#60a5fa"}}>🤖 BUSCA INTELIGENTE COM IA</h3>
-          <button onClick={onClose} style={{background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer"}}>✕</button>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",padding:12}} onClick={onClose}>
+      <div style={{background:"#13131a",border:"1px solid #60a5fa",borderRadius:20,width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:20}} onClick={e=>e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",letterSpacing:3,color:"#60a5fa",margin:0}}>🔍 FOTOS & VÍDEOS — {exName}</h3>
+            {terms.length > 0 && <p style={{fontSize:".62rem",color:"#6b7280",margin:"3px 0 0"}}>Busca: {terms.slice(0,2).join(" · ")}</p>}
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer",flexShrink:0}}>✕</button>
         </div>
 
-        <div style={{background:"rgba(59,130,246,.07)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"8px 12px",marginBottom:12,fontSize:".72rem",color:"#93c5fd",lineHeight:1.5}}>
-          🔍 Claude busca URLs diretas de fotos reais (.jpg/.png) do exercício — Wikimedia, MuscleAndStrength, VeryWellFit. Selecione as melhores.
-        </div>
-
-        <div style={{display:"flex",gap:8,marginBottom:14}}>
-          <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Nome do exercício..." style={{flex:1,background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"9px 13px",color:"#f0f0f8",fontSize:".82rem",outline:"none"}} />
-          <button onClick={search} disabled={loading} style={{background:loading?"#1e3a8a":"#3b82f6",color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontWeight:900,cursor:loading?"not-allowed":"pointer",fontSize:".82rem",whiteSpace:"nowrap",minWidth:90,opacity:loading?0.7:1}}>
-            {loading ? <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:14,height:14,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .7s linear infinite",display:"inline-block"}}/>Buscando</span> : "🔍 Buscar"}
-          </button>
-        </div>
-
+        {/* Loading */}
         {loading && (
-          <div style={{textAlign:"center",padding:"28px 0",color:"#60a5fa"}}>
-            <div style={{width:36,height:36,border:"3px solid rgba(59,130,246,.2)",borderTopColor:"#3b82f6",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 12px"}} />
-            <p style={{fontSize:".82rem",margin:0}}>Claude navegando em fontes especializadas…</p>
-            <p style={{fontSize:".7rem",color:"#6b7280",margin:"4px 0 0"}}>Buscando URLs diretas de imagens reais</p>
+          <div style={{textAlign:"center",padding:"36px 0",color:"#60a5fa"}}>
+            <div style={{width:40,height:40,border:"3px solid rgba(59,130,246,.2)",borderTopColor:"#3b82f6",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 14px"}} />
+            <p style={{fontSize:".85rem",margin:0,fontWeight:700}}>Buscando no Google…</p>
+            <p style={{fontSize:".72rem",color:"#6b7280",margin:"5px 0 0"}}>Claude gera termos precisos → Google Images + YouTube</p>
           </div>
         )}
 
-        {error && (
-          <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
-            <p style={{color:"#f87171",fontSize:".78rem",margin:0}}>{error}</p>
+        {/* Error */}
+        {error && !loading && (
+          <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+            <p style={{color:"#f87171",fontSize:".8rem",margin:0}}>{error}</p>
+            <button onClick={search} style={{marginTop:8,background:"#3b82f6",border:"none",borderRadius:8,color:"#fff",padding:"6px 14px",fontSize:".75rem",fontWeight:800,cursor:"pointer"}}>Tentar novamente</button>
           </div>
         )}
 
-        {aiTip && !loading && (
-          <div style={{background:"rgba(251,191,36,.06)",border:"1px solid rgba(251,191,36,.2)",borderRadius:8,padding:"7px 12px",marginBottom:12,fontSize:".7rem",color:"#fcd34d"}}>
-            🤖 {aiTip}
-          </div>
-        )}
-
-        {results.length > 0 && !loading && (
-          <>
-            <p style={{fontSize:".72rem",color:"#6b7280",marginBottom:10}}>{selected.length} de {results.length} selecionadas — clique para selecionar/desmarcar:</p>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14}}>
-              {results.map((img, i) => {
+        {/* ── FOTOS ── */}
+        {images.length > 0 && !loading && (
+          <div style={{marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <p style={{fontSize:".72rem",fontWeight:900,letterSpacing:1.5,color:"#9ca3af",textTransform:"uppercase",margin:0}}>📸 Fotos — escolha a capa do exercício</p>
+              <span style={{fontSize:".65rem",color:selected.length?"#22c55e":"#6b7280"}}>{selected.length} selecionada(s)</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
+              {images.map((img, i) => {
                 const isSel = selected.includes(img.url);
                 return (
-                  <div key={i} onClick={()=>toggle(img.url)} style={{borderRadius:11,overflow:"hidden",border:`2px solid ${isSel?"#22c55e":"#2a2a3a"}`,cursor:"pointer",background:"#1a1a24",transition:"all .15s",transform:isSel?"scale(1.02)":"scale(1)"}}>
-                    <div style={{position:"relative",height:90,background:"#1a1a24"}}>
-                      <img
-                        src={img.url}
-                        alt={img.label}
-                        style={{width:"100%",height:90,objectFit:"cover",display:"block"}}
-                        onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}
-                      />
-                      <div style={{display:"none",height:90,alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4}}>
-                        <span style={{fontSize:"1.5rem"}}>🏋️</span>
-                        <span style={{fontSize:".6rem",color:"#6b7280"}}>Não disponível</span>
-                      </div>
-                      {isSel && <div style={{position:"absolute",top:5,right:5,background:"#22c55e",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".75rem",fontWeight:900,color:"#000"}}>✓</div>}
-                      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.7)",padding:"6px 6px 4px"}}>
-                        <span style={{fontSize:".55rem",color:img.source==="wger.de"?"#60a5fa":"#a3e635",fontWeight:700}}>📎 {img.source}</span>
-                      </div>
-                    </div>
-                    <div style={{padding:"5px 8px"}}>
-                      <p style={{fontSize:".63rem",color:"#d1d5db",margin:0,lineHeight:1.3}}>{img.label}</p>
+                  <div key={i} onClick={()=>toggle(img.url)}
+                    style={{borderRadius:10,overflow:"hidden",border:`2px solid ${isSel?"#22c55e":"#1e1e2e"}`,cursor:"pointer",background:"#1a1a24",transition:"all .15s",transform:isSel?"scale(1.03)":"scale(1)",position:"relative"}}>
+                    <img
+                      src={img.thumb || img.url}
+                      alt={`ex-${i}`}
+                      style={{width:"100%",height:80,objectFit:"cover",display:"block"}}
+                      onError={e=>{e.target.style.display="none";}}
+                    />
+                    {isSel && (
+                      <div style={{position:"absolute",top:4,right:4,background:"#22c55e",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".7rem",fontWeight:900,color:"#000"}}>✓</div>
+                    )}
+                    <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.75))",padding:"4px 6px 3px"}}>
+                      <span style={{fontSize:".5rem",color:"#a3e635",fontWeight:700}}>{img.source}</span>
                     </div>
                   </div>
                 );
               })}
             </div>
-
             <button
-              onClick={()=>{if(selected.length>0){onSave(selected);onClose();}}}
+              onClick={()=>{ if(selected.length>0){ onSave(selected); onClose(); } }}
               disabled={!selected.length}
-              style={{width:"100%",padding:12,borderRadius:12,border:"none",background:selected.length?"#22c55e":"#1e1e2e",color:selected.length?"#000":"#6b7280",fontWeight:900,cursor:selected.length?"pointer":"not-allowed",fontSize:".85rem",transition:"all .2s"}}
+              style={{width:"100%",marginTop:10,padding:11,borderRadius:11,border:"none",background:selected.length?"#22c55e":"#1e1e2e",color:selected.length?"#000":"#6b7280",fontWeight:900,cursor:selected.length?"pointer":"not-allowed",fontSize:".84rem",transition:"all .2s"}}
             >
-              {selected.length ? `✓ Usar ${selected.length} imagem(ns) selecionada(s)` : "Selecione ao menos 1 imagem"}
+              {selected.length ? `✓ Definir ${selected.length === 1 ? "esta foto" : `${selected.length} fotos`} como capa` : "Selecione ao menos 1 foto"}
             </button>
-          </>
+          </div>
+        )}
+
+        {/* ── VÍDEOS ── */}
+        {videos.length > 0 && !loading && (
+          <div>
+            <p style={{fontSize:".72rem",fontWeight:900,letterSpacing:1.5,color:"#9ca3af",textTransform:"uppercase",marginBottom:10}}>▶ Vídeos de Execução (YouTube)</p>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {videos.map((v, i) => (
+                <div key={i} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:12,overflow:"hidden"}}>
+                  {activeVideo === v.videoId ? (
+                    <div>
+                      <iframe
+                        src={`https://www.youtube.com/embed/${v.videoId}?autoplay=1`}
+                        style={{width:"100%",height:220,border:"none",display:"block"}}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                      <button onClick={()=>setActiveVideo(null)} style={{width:"100%",background:"none",border:"none",borderTop:"1px solid #2a2a3a",color:"#6b7280",padding:"7px",fontSize:".72rem",cursor:"pointer"}}>✕ Fechar vídeo</button>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:8,cursor:"pointer"}} onClick={()=>setActiveVideo(v.videoId)}>
+                      <div style={{position:"relative",flexShrink:0}}>
+                        <img src={v.thumb} alt={v.title} style={{width:100,height:60,objectFit:"cover",borderRadius:8,display:"block"}} onError={e=>e.target.style.display="none"} />
+                        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <div style={{background:"rgba(239,68,68,.9)",borderRadius:"50%",width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <span style={{fontSize:".7rem",marginLeft:2}}>▶</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <p style={{fontSize:".75rem",fontWeight:700,color:"#f0f0f8",margin:0,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{v.title}</p>
+                        <p style={{fontSize:".62rem",color:"#6b7280",margin:"3px 0 0"}}>{v.channel}</p>
+                      </div>
+                      <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{flexShrink:0,background:"none",border:"1px solid #3b3b4a",borderRadius:7,color:"#9ca3af",padding:"4px 8px",fontSize:".6rem",textDecoration:"none"}}>↗</a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Buscar novamente */}
+        {!loading && (images.length > 0 || videos.length > 0) && (
+          <button onClick={search} style={{width:"100%",marginTop:14,padding:9,borderRadius:10,border:"1px solid #2a2a3a",background:"none",color:"#6b7280",fontWeight:700,cursor:"pointer",fontSize:".78rem",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            {loading ? <Spinner /> : "🔄"} Buscar novamente
+          </button>
         )}
       </div>
     </div>
