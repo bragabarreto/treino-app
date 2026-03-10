@@ -302,10 +302,11 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
   const [selected, setSelected] = useState([]);
   const [error, setError] = useState("");
   const [terms, setTerms] = useState([]);
-  const [activeVideo, setActiveVideo] = useState(null); // videoId sendo exibido
+  const [nomeBR, setNomeBR] = useState("");
+  const [activeVideo, setActiveVideo] = useState(null);
 
   async function search() {
-    setLoading(true); setError(""); setImages([]); setVideos([]); setSelected([]); setTerms([]); setActiveVideo(null);
+    setLoading(true); setError(""); setImages([]); setVideos([]); setSelected([]); setTerms([]); setNomeBR(""); setActiveVideo(null);
     try {
       const ex = exDbProp?.[exId] || {};
       const res = await fetch("/api/images/exercise", {
@@ -319,11 +320,12 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
       const imgs = (d.images || d.urls || []).map(i => typeof i === "string" ? { url: i, thumb: i, source: "web" } : i).filter(i => i.url);
       const vids = (d.videos || []).filter(v => v.videoId);
 
-      if (!imgs.length && !vids.length) throw new Error("Nenhum resultado encontrado. Configure GOOGLE_API_KEY e GOOGLE_CSE_ID no Vercel.");
+      if (!imgs.length && !vids.length) throw new Error("Nenhum resultado. Verifique GOOGLE_API_KEY e GOOGLE_CSE_ID no Vercel.");
 
       setImages(imgs);
       setVideos(vids);
       setTerms(d.terms || []);
+      setNomeBR(d.nomeBR || "");
     } catch (e) { setError(e.message); }
     setLoading(false);
   }
@@ -345,8 +347,8 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
         {/* Header */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div>
-            <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",letterSpacing:3,color:"#60a5fa",margin:0}}>🔍 FOTOS & VÍDEOS — {exName}</h3>
-            {terms.length > 0 && <p style={{fontSize:".62rem",color:"#6b7280",margin:"3px 0 0"}}>Busca: {terms.slice(0,2).join(" · ")}</p>}
+            <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.15rem",letterSpacing:3,color:"#60a5fa",margin:0}}>🔍 FOTOS & VÍDEOS — {nomeBR || exName}</h3>
+            {terms.length > 0 && <p style={{fontSize:".62rem",color:"#6b7280",margin:"3px 0 0"}}>🇧🇷 {terms.slice(0,2).join(" · ")}</p>}
           </div>
           <button onClick={onClose} style={{background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer",flexShrink:0}}>✕</button>
         </div>
@@ -355,8 +357,8 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
         {loading && (
           <div style={{textAlign:"center",padding:"36px 0",color:"#60a5fa"}}>
             <div style={{width:40,height:40,border:"3px solid rgba(59,130,246,.2)",borderTopColor:"#3b82f6",borderRadius:"50%",animation:"spin .8s linear infinite",margin:"0 auto 14px"}} />
-            <p style={{fontSize:".85rem",margin:0,fontWeight:700}}>Buscando no Google…</p>
-            <p style={{fontSize:".72rem",color:"#6b7280",margin:"5px 0 0"}}>Claude gera termos precisos → Google Images + YouTube</p>
+            <p style={{fontSize:".85rem",margin:0,fontWeight:700}}>Buscando no Google Brasil…</p>
+            <p style={{fontSize:".72rem",color:"#6b7280",margin:"5px 0 0"}}>Claude gera termos em português → sites brasileiros de musculação + YouTube</p>
           </div>
         )}
 
@@ -390,8 +392,8 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
                     {isSel && (
                       <div style={{position:"absolute",top:4,right:4,background:"#22c55e",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".7rem",fontWeight:900,color:"#000"}}>✓</div>
                     )}
-                    <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.75))",padding:"4px 6px 3px"}}>
-                      <span style={{fontSize:".5rem",color:"#a3e635",fontWeight:700}}>{img.source}</span>
+                    <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,.8))",padding:"4px 6px 3px"}}>
+                      <span style={{fontSize:".48rem",color: img.source?.includes(".br") || img.source?.includes("musculacao") || img.source?.includes("hipertrofia") ? "#4ade80" : "#a3e635",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>🇧🇷 {img.source}</span>
                     </div>
                   </div>
                 );

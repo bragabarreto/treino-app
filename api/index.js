@@ -62,7 +62,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ─── BUSCA DE IMAGENS E VÍDEOS — Google Custom Search + YouTube ─────────────
+  // ─── BUSCA DE IMAGENS E VÍDEOS — Google (PT-BR) + YouTube Brasil ────────────
   if (req.method === "POST" && path === "/images/exercise") {
     const { exId, exName, muscles = [], category = "" } = req.body;
     if (!exName) return json(res, { error: "exName obrigatório" }, 400);
@@ -70,107 +70,151 @@ export default async function handler(req, res) {
     const GKEY = process.env.GOOGLE_API_KEY;
     const GCSE = process.env.GOOGLE_CSE_ID;
 
-    // 1. Claude gera termos de busca precisos em inglês
-    let searchTerms = [];
+    // Sites brasileiros e especializados em musculação/fitness
+    const SITES_BR = [
+      "musculacao.net",
+      "hipertrofia.org",
+      "treinoeperformance.com.br",
+      "dicasdemusculacao.net",
+      "gironoticias.com.br",
+      "vigorefit.com.br",
+      "educacaofisica.com.br",
+      "bodybuilding.com.br",
+      "umcorpoperfeito.com.br",
+      "atleta.com.br",
+    ];
+    const siteFilter = SITES_BR.map(s => `site:${s}`).join(" OR ");
+
+    // 1. Claude gera terminologia brasileira precisa para o exercício
+    let termos = { imagem: [], youtube: "" };
     try {
       const termResp = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 200,
+        max_tokens: 300,
         messages: [{
           role: "user",
-          content: `You are a fitness expert. Translate this exercise to precise English search terms for Google Image Search.
+          content: `Você é especialista em musculação e fitness brasileiro.
 
-Exercise (Portuguese): "${exName}"
-Primary muscles: ${muscles.slice(0,3).join(", ")}
-Category: ${category}
+Exercício: "${exName}"
+Músculos: ${muscles.slice(0,3).join(", ")}
+Categoria: ${category}
 
-Rules:
-- Terms must refer to a REAL gym exercise with equipment/technique
-- Include the equipment type when relevant (barbell, dumbbell, cable, machine, etc.)
-- Include "exercise" or "gym" or "how to" in each term
-- Terms must be specific enough to find photos of PEOPLE PERFORMING this exact movement
+Sua tarefa: gerar termos de busca em PORTUGUÊS BRASILEIRO que um brasileiro usaria para procurar FOTOS e VÍDEOS deste exercício em sites de musculação.
 
-Return ONLY a JSON object:
+Regras:
+- Use o nome popular brasileiro do exercício (como é chamado nas academias do Brasil)
+- Inclua palavras como: execução, como fazer, musculação, treino, técnica
+- Os termos de imagem devem encontrar FOTOS DE PESSOAS fazendo o exercício
+- O termo do YouTube deve encontrar VÍDEOS TUTORIAIS em português
+
+Retorne APENAS JSON válido:
 {
-  "imageTerms": ["<most specific term for image search>", "<alternative term>"],
-  "videoTerm": "<best term for YouTube search of this exercise tutorial>"
+  "nomeBR": "nome como é chamado nas academias brasileiras",
+  "termosImagem": [
+    "nomeBR musculação execução",
+    "nomeBR como fazer técnica"
+  ],
+  "terminoYoutube": "como fazer nomeBR musculação execução correta"
 }`
         }]
       });
       const txt = termResp.content.filter(b=>b.type==="text").map(b=>b.text).join("");
-      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      const s = txt.indexOf("{"), e2 = txt.lastIndexOf("}");
       if (s !== -1) {
-        const parsed = JSON.parse(txt.slice(s, e+1));
-        searchTerms = parsed.imageTerms || [];
-        if (parsed.videoTerm) searchTerms._videoTerm = parsed.videoTerm;
+        const p = JSON.parse(txt.slice(s, e2+1));
+        termos.imagem = p.termosImagem || [];
+        termos.youtube = p.terminoYoutube || "";
+        termos.nomeBR = p.nomeBR || exName;
       }
     } catch(_) {}
-    if (!searchTerms.length) searchTerms = [exName + " exercise gym", exName + " how to gym"];
+    // Fallback se Claude falhar
+    if (!termos.imagem.length) {
+      termos.imagem = [`${exName} musculação execução`, `${exName} como fazer academia`];
+      termos.youtube = `como fazer ${exName} musculação`;
+      termos.nomeBR = exName;
+    }
 
     const images = [];
     const videos = [];
 
-    // 2. Google Custom Search API — imagens
-    if (GKEY && GCSE) {
-      for (const term of searchTerms.slice(0,2)) {
-        if (images.length >= 8) break;
-        try {
-          const url = `https://www.googleapis.com/customsearch/v1?key=${GKEY}&cx=${GCSE}&searchType=image&q=${encodeURIComponent(term)}&num=8&imgType=photo&imgSize=large&safe=active&rights=cc_publicdomain,cc_attribute,cc_sharealike`;
-          const r = await fetch(url);
-          const d = await r.json();
-          (d.items || []).forEach(item => {
-            if (images.length < 12) {
-              images.push({
-                url: item.link,
-                thumb: item.image?.thumbnailLink || item.link,
-                source: "Google",
-                title: item.title,
-              });
-            }
-          });
-        } catch(_) {}
-      }
-    }
-
-    // 3. YouTube Data API v3 — vídeos de demonstração
-    if (GKEY) {
-      const videoQuery = searchTerms._videoTerm || (searchTerms[0] + " tutorial");
+    // Função auxiliar para busca no Google Images
+    async function googleImageSearch(query, extraParams = "") {
+      if (!GKEY || !GCSE) return;
       try {
-        const ytUrl = `https://www.googleapis.com/youtube/v3/search?key=${GKEY}&q=${encodeURIComponent(videoQuery)}&type=video&part=snippet&maxResults=6&videoEmbeddable=true&videoDuration=medium&relevanceLanguage=pt&order=relevance`;
-        const yr = await fetch(ytUrl);
-        const yd = await yr.json();
-        (yd.items || []).forEach(item => {
-          videos.push({
-            videoId: item.id?.videoId,
-            title: item.snippet?.title,
-            channel: item.snippet?.channelTitle,
-            thumb: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
-          });
+        // gl=br → resultados do Brasil | hl=pt-BR → interface português | SEM restrição de licença CC
+        const url = `https://www.googleapis.com/customsearch/v1?key=${GKEY}&cx=${GCSE}&searchType=image&q=${encodeURIComponent(query)}&num=8&imgType=photo&safe=active&gl=br&hl=pt-BR${extraParams}`;
+        const r = await fetch(url);
+        const d = await r.json();
+        (d.items || []).forEach(item => {
+          // Evitar duplicatas por URL
+          if (!images.find(i => i.url === item.link) && images.length < 12) {
+            images.push({
+              url: item.link,
+              thumb: item.image?.thumbnailLink || item.link,
+              source: item.displayLink || "Google",
+              title: item.title,
+            });
+          }
         });
       } catch(_) {}
     }
 
-    // 4. Wger fallback para imagens se Google não configurado
-    if (images.length < 2) {
+    // 2. PASSO 1: Busca nos sites especializados brasileiros
+    const termoPrincipal = termos.imagem[0] || exName;
+    await googleImageSearch(`${termoPrincipal} (${siteFilter})`);
+
+    // 3. PASSO 2: Se poucos resultados, busca ampla no Brasil (gl=br)
+    if (images.length < 5) {
+      await googleImageSearch(termoPrincipal);
+    }
+
+    // 4. PASSO 3: Termo alternativo, ainda no Brasil
+    if (images.length < 6 && termos.imagem[1]) {
+      await googleImageSearch(termos.imagem[1]);
+    }
+
+    // 5. YouTube — busca em português com foco no Brasil
+    if (GKEY) {
+      const ytQuery = termos.youtube || `como fazer ${exName} musculação`;
       try {
-        const wQuery = searchTerms[0] || exName;
-        const wr = await fetch(`https://wger.de/api/v2/exercise/?format=json&language=2&term=${encodeURIComponent(wQuery)}&limit=5`);
-        const wd = await wr.json();
-        for (const ex of (wd.results||[]).slice(0,3)) {
-          if (ex.id) {
-            const imgr = await fetch(`https://wger.de/api/v2/exerciseimage/?format=json&exercise_base=${ex.id}`);
-            const imgd = await imgr.json();
-            (imgd.results||[]).forEach(img => images.push({ url: img.image, thumb: img.image, source: "Wger" }));
+        // regionCode=BR → vídeos brasileiros | relevanceLanguage=pt → prioriza português
+        const ytUrl = `https://www.googleapis.com/youtube/v3/search?key=${GKEY}&q=${encodeURIComponent(ytQuery)}&type=video&part=snippet&maxResults=6&videoEmbeddable=true&relevanceLanguage=pt&regionCode=BR&order=relevance`;
+        const yr = await fetch(ytUrl);
+        const yd = await yr.json();
+        (yd.items || []).forEach(item => {
+          if (item.id?.videoId) {
+            videos.push({
+              videoId: item.id.videoId,
+              title: item.snippet?.title,
+              channel: item.snippet?.channelTitle,
+              thumb: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+            });
           }
+        });
+        // Se poucos resultados BR, busca sem regionCode
+        if (videos.length < 3) {
+          const ytUrl2 = `https://www.googleapis.com/youtube/v3/search?key=${GKEY}&q=${encodeURIComponent(ytQuery)}&type=video&part=snippet&maxResults=6&videoEmbeddable=true&relevanceLanguage=pt&order=relevance`;
+          const yr2 = await fetch(ytUrl2);
+          const yd2 = await yr2.json();
+          (yd2.items || []).forEach(item => {
+            if (item.id?.videoId && !videos.find(v => v.videoId === item.id.videoId)) {
+              videos.push({
+                videoId: item.id.videoId,
+                title: item.snippet?.title,
+                channel: item.snippet?.channelTitle,
+                thumb: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url,
+              });
+            }
+          });
         }
       } catch(_) {}
     }
 
     return json(res, {
       images: images.slice(0, 9),
-      videos: videos.filter(v => v.videoId).slice(0, 6),
-      terms: searchTerms,
-      // Backward compat: urls field para código legado
+      videos: videos.slice(0, 6),
+      terms: termos.imagem,
+      nomeBR: termos.nomeBR,
       urls: images.slice(0, 6).map(i => ({ url: i.url, thumb: i.thumb, source: i.source })),
     });
   }
