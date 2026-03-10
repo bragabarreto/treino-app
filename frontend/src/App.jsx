@@ -229,22 +229,67 @@ const DIAS_FULL = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sába
 // LocalStorage helpers
 const LS = {
   get: (k,d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set: (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  set: (k,v) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch(e) {
+      // Quota exceeded — tenta limpar imagens antigas se for esse o problema
+      if (e.name === "QuotaExceededError" || e.code === 22) {
+        console.warn(`[LS] Quota excedida ao salvar "${k}". Dados não persistidos.`);
+        // Para imagens: tenta salvar só as 3 mais recentes se falhar
+        if (k === "tm7-imgs" && typeof v === "object") {
+          try {
+            const keys = Object.keys(v);
+            const reduced = {};
+            keys.slice(-3).forEach(id => { reduced[id] = (v[id] || []).slice(0,1); });
+            localStorage.setItem(k, JSON.stringify(reduced));
+          } catch(_) {}
+        }
+      }
+    }
+  },
 };
+
+// Comprime imagem para reduzir tamanho no localStorage (max 800px, qualidade 0.75)
+function compressImage(dataUrl, maxPx = 800, quality = 0.75) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(dataUrl); // fallback sem compressão
+    img.src = dataUrl;
+  });
+}
 
 // ─── IMAGE UPLOAD MODAL ───────────────────────────────────────────────────────
 function ImageUploadModal({ exId, exName, currentImages, onSave, onClose }) {
   const [imgs, setImgs] = useState(currentImages || []);
   const [dragging, setDragging] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const fileRef = useRef();
 
-  function processFiles(files) {
-    Array.from(files).forEach(f => {
-      if (!f.type.startsWith("image/")) return;
-      const r = new FileReader();
-      r.onload = e => setImgs(p => [...p, e.target.result]);
-      r.readAsDataURL(f);
-    });
+  async function processFiles(files) {
+    setCompressing(true);
+    const results = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith("image/")) continue;
+      const dataUrl = await new Promise(res => {
+        const r = new FileReader();
+        r.onload = e => res(e.target.result);
+        r.readAsDataURL(f);
+      });
+      const compressed = await compressImage(dataUrl);
+      results.push(compressed);
+    }
+    setImgs(p => [...p, ...results]);
+    setCompressing(false);
   }
 
   return (
@@ -284,9 +329,11 @@ function ImageUploadModal({ exId, exName, currentImages, onSave, onClose }) {
 
         <p style={{fontSize:".68rem",color:"#6b7280",marginBottom:12}}>As 2 primeiras imagens são exibidas como principais. Demais ficam salvas no banco.</p>
 
+        {compressing && <p style={{fontSize:".75rem",color:"#f59e0b",textAlign:"center",marginBottom:8}}>⏳ Comprimindo imagens...</p>}
+
         <div style={{display:"flex",gap:8}}>
           <button onClick={onClose} style={{flex:1,padding:10,borderRadius:10,border:"1px solid #2a2a3a",background:"#1a1a24",color:"#6b7280",fontWeight:800,cursor:"pointer",fontSize:".82rem"}}>Cancelar</button>
-          <button onClick={()=>{onSave(imgs);onClose();}} style={{flex:2,padding:10,borderRadius:10,border:"none",background:"#f59e0b",color:"#000",fontWeight:900,cursor:"pointer",fontSize:".82rem"}}>💾 Salvar Imagens</button>
+          <button onClick={()=>{onSave(imgs);onClose();}} disabled={compressing} style={{flex:2,padding:10,borderRadius:10,border:"none",background:compressing?"#6b7280":"#f59e0b",color:"#000",fontWeight:900,cursor:compressing?"not-allowed":"pointer",fontSize:".82rem"}}>{compressing?"⏳ Processando...":"💾 Salvar Imagens"}</button>
         </div>
       </div>
     </div>
@@ -912,14 +959,21 @@ export default function App() {
   function saveVideo(exId, url) { setUserVideos(p => ({...p,[exId]:url})); }
 
   function getStats() {
-    const days = new Date(calY,calM+1,0).getDate(); let pos=0,feitos=0;
+    const days = new Date(calY,calM+1,0).getDate();
+    let posAvulso=0, feitosAvulso=0, feitosPersonal=0;
     for (let d=1;d<=days;d++) {
       const dow = new Date(calY,calM,d).getDay();
-      if (dow===1||dow===3) pos++;
-      const mk = marks[`${calY}-${calM}-${d}`];
-      if (mk?.length&&!mk.includes("miss")) feitos++;
+      const mk = marks[`${calY}-${calM}-${d}`] || [];
+      const temAvulso = mk.includes("A") || mk.includes("B");
+      const temPersonal = mk.includes("PA") || mk.includes("PB");
+      // Possíveis avulsos: apenas segundas (1) e quartas (3)
+      if (dow===1 || dow===3) posAvulso++;
+      // Contagem separada
+      if (temAvulso) feitosAvulso++;
+      if (temPersonal) feitosPersonal++;
     }
-    return {pos, feitos, pct: pos>0?Math.round(feitos/pos*100):0};
+    const pct = posAvulso>0 ? Math.round(feitosAvulso/posAvulso*100) : 0;
+    return { posAvulso, feitosAvulso, feitosPersonal, feitosTotal: feitosAvulso+feitosPersonal, pct };
   }
   const stats = getStats();
 
@@ -1122,16 +1176,34 @@ export default function App() {
         {/* ── CALENDÁRIO ── */}
         {page==="calendario" && (
           <div style={{animation:"fadeIn .3s ease"}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
-              {[[stats.feitos,"Feitos","#3b82f6"],[stats.pos,"Possíveis","#6b7280"],[stats.pct+"%","Meta","#fbbf24"]].map(([v,l,c],i)=>(
-                <div key={i} style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:13,padding:14,textAlign:"center"}}>
+            {/* Stats — linha 1: avulsos */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
+              {[
+                [stats.feitosAvulso, "Avulsos Feitos", "#3b82f6"],
+                [stats.posAvulso,    "Avulsos Possíveis", "#6b7280"],
+                [stats.pct+"%",      "Meta Avulso", stats.pct>=100?"#22c55e":stats.pct>=50?"#fbbf24":"#ef4444"],
+              ].map(([v,l,c],i)=>(
+                <div key={i} style={{background:"#13131a",border:`1px solid ${i===2?c+"44":"#2a2a3a"}`,borderRadius:13,padding:14,textAlign:"center"}}>
                   <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.8rem",letterSpacing:2,color:c}}>{v}</div>
-                  <div style={{fontSize:".6rem",fontWeight:800,color:"#6b7280",letterSpacing:1,textTransform:"uppercase"}}>{l}</div>
+                  <div style={{fontSize:".58rem",fontWeight:800,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",lineHeight:1.3}}>{l}</div>
                 </div>
               ))}
             </div>
-            <div style={{background:"#1a1a24",borderRadius:99,height:7,overflow:"hidden",marginBottom:14}}>
-              <div style={{width:Math.min(stats.pct,100)+"%",height:"100%",background:"linear-gradient(90deg,#3b82f6,#22c55e)",borderRadius:99,transition:"width .7s"}} />
+            {/* Barra de progresso avulsos */}
+            <div style={{background:"#1a1a24",borderRadius:99,height:7,overflow:"hidden",marginBottom:8}}>
+              <div style={{width:Math.min(stats.pct,100)+"%",height:"100%",background:`linear-gradient(90deg,${stats.pct>=50?"#3b82f6":"#ef4444"},${stats.pct>=100?"#22c55e":"#3b82f6"})`,borderRadius:99,transition:"width .7s"}} />
+            </div>
+            {/* Stats — linha 2: personal + total */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+              {[
+                [stats.feitosPersonal, "Sessões Personal", "#a855f7"],
+                [stats.feitosTotal,    "Total de Treinos", "#f59e0b"],
+              ].map(([v,l,c],i)=>(
+                <div key={i} style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:13,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.6rem",letterSpacing:2,color:c,minWidth:36}}>{v}</div>
+                  <div style={{fontSize:".6rem",fontWeight:800,color:"#6b7280",letterSpacing:1,textTransform:"uppercase",lineHeight:1.3}}>{l}</div>
+                </div>
+              ))}
             </div>
             <div style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:16,padding:18}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
