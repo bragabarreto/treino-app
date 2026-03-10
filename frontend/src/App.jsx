@@ -515,11 +515,12 @@ function extractYTId(url) {
 }
 
 // ─── EXERCISE DETAIL MODAL ────────────────────────────────────────────────────
-function ExerciseModal({ exId, db, userImages, userVideos, onClose, onUpdateEx, onSaveImages, onSaveVideo }) {
+function ExerciseModal({ exId, db, userImages, userVideos, onClose, onUpdateEx, onSaveImages, onSaveVideo, onDeleteEx }) {
   const [imgIdx, setImgIdx] = useState(0);
   const [imgError, setImgError] = useState({});
   const [showUpload, setShowUpload] = useState(false);
   const [showAISearch, setShowAISearch] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [webImgs, setWebImgs] = useState(null); // imagens buscadas via web search
   const [webLoading, setWebLoading] = useState(false);
@@ -558,9 +559,13 @@ function ExerciseModal({ exId, db, userImages, userVideos, onClose, onUpdateEx, 
         <div style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:22,width:"100%",maxWidth:520,maxHeight:"93vh",overflowY:"auto",padding:22}} onClick={e=>e.stopPropagation()}>
 
           {/* Header */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
-            <h2 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",letterSpacing:3,color:"#f0f0f8",flex:1,lineHeight:1.2,paddingRight:12}}>{name}</h2>
-            <button onClick={onClose} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"5px 11px",cursor:"pointer",flexShrink:0}}>✕</button>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,gap:8}}>
+            <h2 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.4rem",letterSpacing:3,color:"#f0f0f8",flex:1,lineHeight:1.2}}>{name}</h2>
+            <div style={{display:"flex",gap:5,flexShrink:0}}>
+              <button onClick={()=>setShowEdit(true)} title="Editar exercício" style={{background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.25)",borderRadius:8,color:"#4ade80",padding:"5px 10px",cursor:"pointer",fontSize:".72rem",fontWeight:800}}>✏️</button>
+              {onDeleteEx && <button onClick={()=>{if(window.confirm(`Remover "${name}" do banco?`)){onDeleteEx(exId);onClose();}}} title="Remover do banco" style={{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.25)",borderRadius:8,color:"#f87171",padding:"5px 10px",cursor:"pointer",fontSize:".72rem"}}>🗑</button>}
+              <button onClick={onClose} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"5px 11px",cursor:"pointer"}}>✕</button>
+            </div>
           </div>
 
           {/* IMAGE VIEWER */}
@@ -718,7 +723,159 @@ function ExerciseModal({ exId, db, userImages, userVideos, onClose, onUpdateEx, 
           onClose={() => setShowAISearch(false)}
         />
       )}
+      {showEdit && (
+        <AddExerciseModal
+          initialData={{...ex, id: exId}}
+          onSave={(id, data) => onUpdateEx(id, data)}
+          onClose={() => setShowEdit(false)}
+        />
+      )}
     </>
+  );
+}
+
+// ─── SLUGIFY ──────────────────────────────────────────────────────────────────
+function slugify(name) {
+  return name.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+// ─── ADD / EDIT EXERCISE MODAL ────────────────────────────────────────────────
+function AddExerciseModal({ initialData, onSave, onClose }) {
+  const isEdit = !!initialData;
+  const [form, setForm] = useState(() => initialData ? {
+    name: initialData.name || "",
+    category: initialData.category || "",
+    equipment: initialData.equipment || "",
+    muscles: (initialData.muscles || []).join(", "),
+    description: initialData.description || "",
+    steps: initialData.steps?.length ? [...initialData.steps] : ["", "", ""],
+    tips: initialData.tips?.length ? [...initialData.tips] : ["", ""],
+  } : {
+    name: "", category: "", equipment: "", muscles: "",
+    description: "", steps: ["", "", ""], tips: ["", ""],
+  });
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const set = (k, v) => setForm(p => ({...p, [k]: v}));
+
+  async function fillWithAI() {
+    if (!form.name.trim()) { alert("Digite o nome do exercício primeiro."); return; }
+    setAiLoading(true);
+    try {
+      const txt = await callAI([{role:"user", content:`Você é personal trainer especialista. Para o exercício "${form.name}", responda APENAS com JSON válido (sem markdown): {"category":"categoria curta em português","equipment":"equipamento principal","muscles":["músculo1","músculo2","músculo3"],"description":"2-3 frases descritivas em português","steps":["passo 1","passo 2","passo 3","passo 4","passo 5"],"tips":["dica 1","dica 2","dica 3"]}`}]);
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s !== -1) {
+        const p = JSON.parse(txt.slice(s, e+1));
+        setForm(f => ({
+          ...f,
+          category: p.category || f.category,
+          equipment: p.equipment || f.equipment,
+          muscles: Array.isArray(p.muscles) ? p.muscles.join(", ") : (p.muscles || f.muscles),
+          description: p.description || f.description,
+          steps: p.steps?.filter(Boolean) || f.steps,
+          tips: p.tips?.filter(Boolean) || f.tips,
+        }));
+      }
+    } catch(err) { alert("Erro IA: " + err.message); }
+    setAiLoading(false);
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) { alert("Nome do exercício é obrigatório."); return; }
+    const id = initialData?.id || slugify(form.name);
+    const muscles = form.muscles.split(",").map(m => m.trim()).filter(Boolean);
+    const steps = form.steps.filter(Boolean);
+    const tips = form.tips.filter(Boolean);
+    onSave(id, { name: form.name.trim(), category: form.category, equipment: form.equipment, muscles, description: form.description, steps, tips, userAdded: true });
+    onClose();
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",padding:16}} onClick={onClose}>
+      <div style={{background:"#13131a",border:"1px solid #22c55e44",borderRadius:22,width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",padding:22}} onClick={e=>e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.3rem",letterSpacing:3,color:"#22c55e",margin:0}}>{isEdit ? "✏️ EDITAR EXERCÍCIO" : "➕ NOVO EXERCÍCIO"}</h3>
+          <button onClick={onClose} style={{background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer"}}>✕</button>
+        </div>
+
+        {/* Nome */}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase",display:"block",marginBottom:5}}>Nome do Exercício *</label>
+          <div style={{display:"flex",gap:8}}>
+            <input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="Ex: Agachamento Livre" style={{flex:1,background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"10px 13px",color:"#f0f0f8",fontSize:".88rem",outline:"none"}} />
+            <button onClick={fillWithAI} disabled={aiLoading} style={{background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:10,color:"#60a5fa",fontWeight:900,cursor:aiLoading?"not-allowed":"pointer",padding:"8px 12px",fontSize:".72rem",whiteSpace:"nowrap"}}>
+              {aiLoading ? "⏳..." : "✨ IA"}
+            </button>
+          </div>
+        </div>
+
+        {/* Categoria + Equipamento */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          {[["category","Categoria","Ex: Pernas"],["equipment","Equipamento","Ex: Halteres"]].map(([k,l,ph])=>(
+            <div key={k}>
+              <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase",display:"block",marginBottom:5}}>{l}</label>
+              <input value={form[k]} onChange={e=>set(k,e.target.value)} placeholder={ph} style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"9px 12px",color:"#f0f0f8",fontSize:".82rem",outline:"none"}} />
+            </div>
+          ))}
+        </div>
+
+        {/* Músculos */}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase",display:"block",marginBottom:5}}>Músculos (separados por vírgula)</label>
+          <input value={form.muscles} onChange={e=>set("muscles",e.target.value)} placeholder="Ex: Quadríceps, Glúteo, Isquiotibiais" style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"9px 12px",color:"#f0f0f8",fontSize:".82rem",outline:"none"}} />
+        </div>
+
+        {/* Descrição */}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase",display:"block",marginBottom:5}}>Descrição</label>
+          <textarea value={form.description} onChange={e=>set("description",e.target.value)} placeholder="Benefícios e características do exercício..." rows={3} style={{width:"100%",background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:10,padding:"9px 12px",color:"#f0f0f8",fontSize:".82rem",outline:"none",resize:"vertical",fontFamily:"DM Sans,sans-serif"}} />
+        </div>
+
+        {/* Steps */}
+        <div style={{marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase"}}>Passos de Execução</label>
+            <button onClick={()=>set("steps",[...form.steps,""])} style={{background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.25)",borderRadius:7,color:"#4ade80",padding:"3px 10px",fontSize:".65rem",fontWeight:800,cursor:"pointer"}}>+ passo</button>
+          </div>
+          {form.steps.map((s,i)=>(
+            <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"center"}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:"rgba(59,130,246,.15)",border:"1px solid #3b82f6",color:"#60a5fa",fontSize:".65rem",fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+              <input value={s} onChange={e=>set("steps",form.steps.map((x,j)=>j===i?e.target.value:x))} placeholder={`Passo ${i+1}...`} style={{flex:1,background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,padding:"7px 10px",color:"#f0f0f8",fontSize:".8rem",outline:"none"}} />
+              {form.steps.length > 1 && <button onClick={()=>set("steps",form.steps.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:".75rem",flexShrink:0}}>✕</button>}
+            </div>
+          ))}
+        </div>
+
+        {/* Tips */}
+        <div style={{marginBottom:18}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <label style={{fontSize:".62rem",fontWeight:900,letterSpacing:1.5,color:"#6b7280",textTransform:"uppercase"}}>Dicas</label>
+            <button onClick={()=>set("tips",[...form.tips,""])} style={{background:"rgba(251,191,36,.1)",border:"1px solid rgba(251,191,36,.25)",borderRadius:7,color:"#fbbf24",padding:"3px 10px",fontSize:".65rem",fontWeight:800,cursor:"pointer"}}>+ dica</button>
+          </div>
+          {form.tips.map((t,i)=>(
+            <div key={i} style={{display:"flex",gap:6,marginBottom:5,alignItems:"center"}}>
+              <span style={{flexShrink:0,fontSize:".85rem"}}>💡</span>
+              <input value={t} onChange={e=>set("tips",form.tips.map((x,j)=>j===i?e.target.value:x))} placeholder={`Dica ${i+1}...`} style={{flex:1,background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,padding:"7px 10px",color:"#f0f0f8",fontSize:".8rem",outline:"none"}} />
+              {form.tips.length > 1 && <button onClick={()=>set("tips",form.tips.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:".75rem",flexShrink:0}}>✕</button>}
+            </div>
+          ))}
+        </div>
+
+        {/* Buttons */}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onClose} style={{flex:1,padding:11,borderRadius:11,border:"1px solid #2a2a3a",background:"#1a1a24",color:"#6b7280",fontWeight:800,cursor:"pointer",fontSize:".82rem"}}>Cancelar</button>
+          <button onClick={handleSave} style={{flex:2,padding:11,borderRadius:11,border:"none",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",fontWeight:900,cursor:"pointer",fontSize:".85rem"}}>
+            {isEdit ? "💾 Salvar Alterações" : "➕ Adicionar ao Banco"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -882,6 +1039,7 @@ export default function App() {
   const [feedbackText, setFeedbackText] = useState({period:"", health:"", goals:""});
   const [showUpdate, setShowUpdate] = useState(false);
   const [searchQ, setSearchQ] = useState("");
+  const [showAddEx, setShowAddEx] = useState(false);
   const [rotina, setRotina] = useState(() => LS.get("tm7-rotina", {
     0:[{t:"m",a:[]},{t:"t",a:[]},{t:"n",a:[]}],
     1:[{t:"m",a:[]},{t:"t",a:["🏋️ Treino A Avulso"]},{t:"n",a:["🏐 Vôlei de Praia"]}],
@@ -954,6 +1112,7 @@ export default function App() {
   useEffect(() => { if(monthFeedback) LS.set("tm7-feedback", monthFeedback); }, [monthFeedback]);
 
   function updateEx(id, data) { setExDb(p => ({...p,[id]:data})); }
+  function deleteEx(id) { setExDb(p => { const n={...p}; delete n[id]; return n; }); }
   function updateLog(k,v) { setLogs(p => ({...p,[k]:v})); }
   function saveImages(exId, imgs) { setUserImages(p => ({...p,[exId]:imgs})); }
   function saveVideo(exId, url) { setUserVideos(p => ({...p,[exId]:url})); }
@@ -1255,25 +1414,41 @@ export default function App() {
         {/* ── EXERCÍCIOS ── */}
         {page==="exercicios" && (
           <div style={{animation:"fadeIn .3s ease"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:".58rem",fontWeight:900,letterSpacing:3,color:"#6b7280",textTransform:"uppercase"}}>{filteredExs.length} exercícios</div>
-              <div style={{fontSize:".62rem",color:"#f59e0b",display:"flex",alignItems:"center",gap:4}}>
-                <span style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b",display:"inline-block"}} />
-                Ponto laranja = imagem personalizada
+            {/* Header row */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8}}>
+              <div>
+                <div style={{fontSize:".58rem",fontWeight:900,letterSpacing:3,color:"#6b7280",textTransform:"uppercase",marginBottom:3}}>{filteredExs.length} exercícios no banco</div>
+                <div style={{fontSize:".6rem",color:"#f59e0b",display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{width:7,height:7,borderRadius:"50%",background:"#f59e0b",display:"inline-block"}} />
+                  Laranja = imagem personalizada
+                </div>
               </div>
+              <button onClick={()=>setShowAddEx(true)} style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:11,color:"#fff",fontWeight:900,padding:"9px 14px",cursor:"pointer",fontSize:".78rem",letterSpacing:.5,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(34,197,94,.25)"}}>➕ Novo Exercício</button>
             </div>
             <input placeholder="🔍 Buscar por nome, músculo ou categoria..." value={searchQ} onChange={e=>setSearchQ(e.target.value)} style={{width:"100%",background:"#13131a",border:"1px solid #2a2a3a",borderRadius:12,padding:"11px 14px",color:"#f0f0f8",fontSize:".85rem",outline:"none",marginBottom:14}} />
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
               {filteredExs.map(([id,ex]) => {
                 const imgs = getImagesForEx(id, userImages);
-                const hasUser = userImages?.[id]?.length > 0;
+                const hasUserImg = userImages?.[id]?.length > 0;
+                const hasVideo = !!userVideos?.[id];
+                const isUserAdded = !!ex.userAdded;
+                const borderColor = isUserAdded ? "#22c55e44" : (hasUserImg ? "#f59e0b44" : "#2a2a3a");
                 return (
-                  <div key={id} onClick={()=>setDetailEx(id)} style={{background:"#13131a",border:`1px solid ${hasUser?"#f59e0b44":"#2a2a3a"}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"border-color .2s,transform .15s",position:"relative"}} onMouseOver={e=>{e.currentTarget.style.borderColor=hasUser?"#f59e0b":"#3b82f6";e.currentTarget.style.transform="translateY(-2px)";}} onMouseOut={e=>{e.currentTarget.style.borderColor=hasUser?"#f59e0b44":"#2a2a3a";e.currentTarget.style.transform="translateY(0)";}}>
-                    {hasUser && <div style={{position:"absolute",top:8,right:8,zIndex:2,background:"#f59e0b",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".55rem"}}>📷</div>}
-                    <div style={{height:90,display:"grid",gridTemplateColumns:"1fr 1fr",gap:2,background:"#1a1a24"}}>
-                      {imgs.slice(0,2).map((src,i) => (
+                  <div key={id} onClick={()=>setDetailEx(id)} style={{background:"#13131a",border:`1px solid ${borderColor}`,borderRadius:14,overflow:"hidden",cursor:"pointer",transition:"border-color .2s,transform .15s",position:"relative"}}
+                    onMouseOver={e=>{e.currentTarget.style.borderColor=isUserAdded?"#22c55e":hasUserImg?"#f59e0b":"#3b82f6";e.currentTarget.style.transform="translateY(-2px)";}}
+                    onMouseOut={e=>{e.currentTarget.style.borderColor=borderColor;e.currentTarget.style.transform="translateY(0)";}}>
+                    {/* Badges */}
+                    <div style={{position:"absolute",top:6,right:6,zIndex:2,display:"flex",flexDirection:"column",gap:3,alignItems:"flex-end"}}>
+                      {isUserAdded && <span style={{background:"rgba(34,197,94,.9)",borderRadius:5,padding:"1px 5px",fontSize:".5rem",fontWeight:900,color:"#000"}}>MEU</span>}
+                      {hasUserImg && <span style={{background:"rgba(245,158,11,.9)",borderRadius:5,padding:"1px 5px",fontSize:".5rem",fontWeight:900,color:"#000"}}>📷</span>}
+                      {hasVideo && <span style={{background:"rgba(239,68,68,.85)",borderRadius:5,padding:"1px 5px",fontSize:".5rem",fontWeight:900,color:"#fff"}}>▶</span>}
+                    </div>
+                    <div style={{height:90,display:"grid",gridTemplateColumns:imgs.length>=2?"1fr 1fr":"1fr",gap:2,background:"#1a1a24"}}>
+                      {imgs.length > 0 ? imgs.slice(0,2).map((src,i) => (
                         <img key={i} src={src} alt={ex.name} style={{width:"100%",height:90,objectFit:"cover",display:"block"}} onError={e=>e.target.style.display="none"} />
-                      ))}
+                      )) : (
+                        <div style={{height:90,display:"flex",alignItems:"center",justifyContent:"center",color:"#2a2a3a",fontSize:"2rem"}}>🏋️</div>
+                      )}
                     </div>
                     <div style={{padding:10}}>
                       <div style={{fontWeight:800,fontSize:".82rem",marginBottom:4,lineHeight:1.3}}>{ex.name}</div>
@@ -1357,6 +1532,7 @@ export default function App() {
           onUpdateEx={updateEx}
           onSaveImages={saveImages}
           onSaveVideo={saveVideo}
+          onDeleteEx={deleteEx}
         />
       )}
 
@@ -1389,7 +1565,33 @@ export default function App() {
             const key = `${now.getFullYear()}-${now.getMonth()}`;
             setAllTreinos(p => ({...p, A: newTreinos.A, B: newTreinos.B}));
             setMonthFeedback(p => ({...p, [key]: {...(p[key]||{}), applied: true}}));
+            // Auto-register any new exercise IDs in exDb so they persist in the bank
+            setExDb(prev => {
+              const updated = {...prev};
+              ["A","B"].forEach(t => {
+                (newTreinos[t]?.blocos || []).forEach(bl => {
+                  (bl.exercises || []).forEach(ex => {
+                    if (ex.id && !updated[ex.id]) {
+                      updated[ex.id] = {
+                        name: ex.id.replace(/-/g," ").replace(/\b\w/g, c=>c.toUpperCase()),
+                        muscles: [], category: "Geral", equipment: "",
+                        description: "", steps: [], tips: [],
+                      };
+                    }
+                  });
+                });
+              });
+              return updated;
+            });
           }}
+        />
+      )}
+
+      {/* ── ADD EXERCISE MODAL ── */}
+      {showAddEx && (
+        <AddExerciseModal
+          onSave={(id, data) => updateEx(id, data)}
+          onClose={() => setShowAddEx(false)}
         />
       )}
     </div>
