@@ -458,8 +458,15 @@ function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
   );
 }
 
+// ─── YOUTUBE ID EXTRACTOR ─────────────────────────────────────────────────────
+function extractYTId(url) {
+  if (!url) return "";
+  const m = url.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : "";
+}
+
 // ─── EXERCISE DETAIL MODAL ────────────────────────────────────────────────────
-function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages }) {
+function ExerciseModal({ exId, db, userImages, userVideos, onClose, onUpdateEx, onSaveImages, onSaveVideo }) {
   const [imgIdx, setImgIdx] = useState(0);
   const [imgError, setImgError] = useState({});
   const [showUpload, setShowUpload] = useState(false);
@@ -467,25 +474,16 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
   const [aiLoading, setAiLoading] = useState(false);
   const [webImgs, setWebImgs] = useState(null); // imagens buscadas via web search
   const [webLoading, setWebLoading] = useState(false);
+  const [showYTInput, setShowYTInput] = useState(false);
+  const [ytInput, setYtInput] = useState(userVideos?.[exId] || "");
 
   const ex = db[exId];
   if (!ex) return null;
 
   const hasUserImgs = userImages?.[exId]?.length > 0;
   const hasEmbedded = EMBEDDED_IMGS[exId]?.length > 0;
-  // Use webImgs se disponível, senão fallback normal
-  const imgs = webImgs || getImagesForEx(exId, userImages);
-
-  // Auto-busca via Wikimedia Commons se não tiver foto embarcada nem do usuário
-  useEffect(() => {
-    if (!hasUserImgs && !hasEmbedded && !webImgs && !webLoading) {
-      setWebLoading(true);
-      searchExerciseImages(exId, db)
-        .then(urls => { if (urls.length) { setWebImgs(urls); setImgError({}); } })
-        .catch(() => {/* silencioso — fallback já existe */})
-        .finally(() => setWebLoading(false));
-    }
-  }, [exId]);
+  // User images always win; fallback to webImgs or embedded
+  const imgs = hasUserImgs ? userImages[exId] : (webImgs || getImagesForEx(exId, userImages));
 
   async function enrichWithAI() {
     setAiLoading(true);
@@ -571,6 +569,39 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
               <button onClick={()=>setShowAISearch(true)} style={{flex:1,background:"rgba(59,130,246,.1)",border:"1px solid rgba(59,130,246,.3)",borderRadius:9,padding:"7px 8px",color:"#60a5fa",fontWeight:800,cursor:"pointer",fontSize:".7rem"}}>🤖 Buscar IA</button>
               {hasUserImgs && <button onClick={()=>onSaveImages(exId,[])} style={{flex:1,background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.3)",borderRadius:9,padding:"7px 8px",color:"#f87171",fontWeight:800,cursor:"pointer",fontSize:".7rem"}}>🗑 Reset</button>}
             </div>
+
+            {/* YouTube Link */}
+            <div style={{marginTop:10}}>
+              {userVideos?.[exId] ? (
+                <div style={{borderRadius:12,overflow:"hidden",background:"#1a1a24",border:"1px solid #2a2a3a"}}>
+                  <iframe
+                    src={`https://www.youtube.com/embed/${extractYTId(userVideos[exId])}`}
+                    style={{width:"100%",height:180,border:"none",display:"block"}}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                  <div style={{display:"flex",gap:6,padding:8}}>
+                    <button onClick={()=>{setShowYTInput(true);setYtInput(userVideos[exId]);}} style={{flex:1,background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#9ca3af",padding:"5px 8px",fontSize:".68rem",cursor:"pointer",fontWeight:700}}>✏️ Alterar link</button>
+                    <button onClick={()=>onSaveVideo(exId,"")} style={{flex:1,background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.3)",borderRadius:8,color:"#f87171",padding:"5px 8px",fontSize:".68rem",cursor:"pointer",fontWeight:700}}>🗑 Remover</button>
+                  </div>
+                </div>
+              ) : !showYTInput ? (
+                <button onClick={()=>setShowYTInput(true)} style={{width:"100%",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:9,padding:"7px 8px",color:"#f87171",fontWeight:800,cursor:"pointer",fontSize:".7rem"}}>▶ Vincular vídeo YouTube</button>
+              ) : null}
+              {showYTInput && (
+                <div style={{display:"flex",gap:6,marginTop:6}}>
+                  <input
+                    autoFocus
+                    value={ytInput}
+                    onChange={e=>setYtInput(e.target.value)}
+                    placeholder="Cole o link do YouTube aqui..."
+                    style={{flex:1,background:"#1a1a24",border:"1px solid #ef4444",borderRadius:9,padding:"8px 11px",color:"#f0f0f8",fontSize:".78rem",outline:"none"}}
+                  />
+                  <button onClick={()=>{if(ytInput.trim()){onSaveVideo(exId,ytInput.trim());}setShowYTInput(false);}} style={{background:"#ef4444",border:"none",borderRadius:9,color:"#fff",padding:"8px 14px",fontWeight:900,cursor:"pointer",fontSize:".78rem"}}>✓</button>
+                  <button onClick={()=>setShowYTInput(false)} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:9,color:"#6b7280",padding:"8px 10px",fontWeight:700,cursor:"pointer",fontSize:".78rem"}}>✕</button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Badges */}
@@ -625,7 +656,7 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
           exId={exId}
           exName={name}
           currentImages={userImages?.[exId] || []}
-          onSave={imgs => onSaveImages(exId, imgs)}
+          onSave={imgs => { onSaveImages(exId, imgs); setWebImgs(null); }}
           onClose={() => setShowUpload(false)}
         />
       )}
@@ -634,7 +665,7 @@ function ExerciseModal({ exId, db, userImages, onClose, onUpdateEx, onSaveImages
           exId={exId}
           exName={name}
           exDb={db}
-          onSave={urls => onSaveImages(exId, [...(userImages?.[exId]||[]), ...urls])}
+          onSave={urls => { onSaveImages(exId, [...(userImages?.[exId]||[]), ...urls]); setWebImgs(null); }}
           onClose={() => setShowAISearch(false)}
         />
       )}
@@ -652,7 +683,7 @@ function ExCard({ exId, s, r, db, userImages, onOpen, logKey, logs, onLog }) {
   const hasUserImgs = userImages?.[exId]?.length > 0;
 
   return (
-    <div style={{borderBottom:"1px solid #2a2a3a",padding:"14px 16px"}}>
+    <div className="ex-card" style={{borderBottom:"1px solid #1a1a24",padding:"12px 16px",transition:"background .15s",cursor:"pointer"}} onMouseOver={e=>e.currentTarget.style.background="#1a1a24"} onMouseOut={e=>e.currentTarget.style.background=""}>
       <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
         {/* Thumbnail */}
         <div onClick={()=>onOpen(exId)} style={{width:56,height:56,borderRadius:11,background:"#1a1a24",border:`2px solid ${hasUserImgs?"#f59e0b":"#2a2a3a"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.3rem",flexShrink:0,cursor:"pointer",overflow:"hidden",position:"relative"}}>
@@ -792,6 +823,7 @@ export default function App() {
   const [exDb, setExDb] = useState(() => LS.get("tm7-exdb", EXERCISE_DB_DEFAULT));
   // userImages: { exId: [dataUrl, dataUrl, ...] }
   const [userImages, setUserImages] = useState(() => LS.get("tm7-imgs", {}));
+  const [userVideos, setUserVideos] = useState(() => LS.get("tm7-videos", {}));
   const [detailEx, setDetailEx] = useState(null);
   const [dayModal, setDayModal] = useState(null);
   const [dayOpts, setDayOpts] = useState({A:false,B:false,PA:false,PB:false,miss:false});
@@ -866,6 +898,7 @@ export default function App() {
   useEffect(() => LS.set("tm7-logs", logs), [logs]);
   useEffect(() => LS.set("tm7-exdb", exDb), [exDb]);
   useEffect(() => LS.set("tm7-imgs", userImages), [userImages]);
+  useEffect(() => LS.set("tm7-videos", userVideos), [userVideos]);
   useEffect(() => LS.set("tm7-rotina", rotina), [rotina]);
   useEffect(() => LS.set("tm7-plogs", plogs), [plogs]);
   useEffect(() => { if(allTreinos) LS.set("tm7-treinos", allTreinos); }, [allTreinos]);
@@ -874,6 +907,7 @@ export default function App() {
   function updateEx(id, data) { setExDb(p => ({...p,[id]:data})); }
   function updateLog(k,v) { setLogs(p => ({...p,[k]:v})); }
   function saveImages(exId, imgs) { setUserImages(p => ({...p,[exId]:imgs})); }
+  function saveVideo(exId, url) { setUserVideos(p => ({...p,[exId]:url})); }
 
   function getStats() {
     const days = new Date(calY,calM+1,0).getDate(); let pos=0,feitos=0;
@@ -900,10 +934,12 @@ export default function App() {
 
   function renderTreino(tk) {
     const t = allTreinos[tk]; if (!t) return null;
+    const color = t.color || "#3b82f6";
     return t.blocos.map((bl,bi) => (
-      <div key={bi} style={{background:"#13131a",border:"1px solid #2a2a3a",borderRadius:14,marginBottom:14,overflow:"hidden"}}>
-        <div style={{padding:"10px 16px",background:t.color+"11",borderLeft:`4px solid ${t.color}`,borderBottom:"1px solid #2a2a3a",display:"flex",alignItems:"center",gap:10}}>
-          <span style={{background:t.color,color:t.color==="#22c55e"?"#0a2a14":"#fff",borderRadius:5,padding:"2px 9px",fontSize:".7rem",fontWeight:900,fontFamily:"Bebas Neue,sans-serif",letterSpacing:1}}>Bloco {["I","II","III"][bi]}</span>
+      <div key={bi} className="workout-block" style={{background:"linear-gradient(135deg,#13131a,#0f0f18)",border:"1px solid #1e1e2c",borderRadius:16,marginBottom:12,overflow:"hidden",boxShadow:"0 4px 16px rgba(0,0,0,.2)"}}>
+        <div style={{padding:"12px 16px",background:"rgba(255,255,255,.03)",borderBottom:"1px solid #1e1e2c",display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:3,height:18,borderRadius:2,background:color,flexShrink:0}} />
+          <span style={{background:color,color:color==="#22c55e"?"#0a2a14":"#fff",borderRadius:5,padding:"2px 9px",fontSize:".7rem",fontWeight:900,fontFamily:"Bebas Neue,sans-serif",letterSpacing:1}}>Bloco {["I","II","III"][bi]}</span>
           <span style={{fontWeight:800,fontSize:".85rem"}}>{bl.nome}</span>
         </div>
         {bl.exercises.map((ex,ei) => (
@@ -956,7 +992,7 @@ export default function App() {
     return { eligible: isEndOfMonth && pct > 0.5 && !alreadyUpdated, pct, completed, possible };
   }
 
-  const navs = [{id:"treinos",icon:"🏋️",l:"Treinos"},{id:"personal",icon:"👨‍💼",l:"Personal"},{id:"calendario",icon:"📅",l:"Calendário"},{id:"exercicios",icon:"📖",l:"Exercícios"},{id:"rotina",icon:"📋",l:"Rotina"}];
+  const navs = [{id:"treinos",icon:"🏋️",l:"Treinos",color:"#3b82f6"},{id:"personal",icon:"👨‍💼",l:"Personal",color:"#a855f7"},{id:"calendario",icon:"📅",l:"Calendário",color:"#22c55e"},{id:"exercicios",icon:"📖",l:"Exercícios",color:"#f59e0b"},{id:"rotina",icon:"📋",l:"Rotina",color:"#ec4899"}];
 
   return (
     <div style={{background:"#0a0a0f",minHeight:"100vh",color:"#f0f0f8",fontFamily:"'DM Sans',sans-serif"}}>
@@ -968,12 +1004,17 @@ export default function App() {
         input, textarea { font-family: 'DM Sans', sans-serif; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 2px; }
+        .nav-btn { transition: all .25s cubic-bezier(.4,0,.2,1); }
+        .nav-btn:hover { opacity: 1 !important; transform: translateY(-1px); }
+        .ex-card:hover { border-color: #3b82f688 !important; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(59,130,246,.12); }
+        .workout-block { transition: box-shadow .2s; }
+        .workout-block:hover { box-shadow: 0 4px 20px rgba(0,0,0,.3); }
       `}</style>
 
       {/* NAV */}
-      <nav style={{display:"flex",background:"#13131a",borderBottom:"1px solid #2a2a3a",position:"sticky",top:0,zIndex:50,overflowX:"auto"}}>
+      <nav style={{display:"flex",gap:4,background:"#0d0d14",borderBottom:"1px solid #1e1e2c",padding:"0 12px",overflowX:"auto",position:"sticky",top:0,zIndex:50,backdropFilter:"blur(20px)"}}>
         {navs.map(n => (
-          <button key={n.id} onClick={()=>setPage(n.id)} style={{flex:1,minWidth:62,padding:"11px 4px",background:"none",border:"none",color:page===n.id?"#f0f0f8":"#6b7280",borderBottom:`3px solid ${page===n.id?"#3b82f6":"transparent"}`,fontSize:".56rem",fontWeight:900,letterSpacing:".5px",textTransform:"uppercase",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"all .2s"}}>
+          <button key={n.id} onClick={()=>setPage(n.id)} className="nav-btn" style={{flex:1,minWidth:62,padding:"12px 14px",background:"none",border:"none",borderBottom:page===n.id?`2px solid ${n.color||"#3b82f6"}`:"2px solid transparent",borderRadius:0,color:page===n.id?"#f0f0f8":"#6b7280",fontSize:".56rem",fontWeight:900,letterSpacing:".5px",textTransform:"uppercase",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <span style={{fontSize:"1rem"}}>{n.icon}</span>{n.l}
           </button>
         ))}
@@ -1006,7 +1047,7 @@ export default function App() {
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:16}}>
               {[["A","Avulso A","Seg","#3b82f6"],["B","Avulso B","Qua","#22c55e"],["PA","Personal A","Ter","#a855f7"],["PB","Personal B","Sex","#ec4899"]].map(([k,l,d,c])=>(
-                <button key={k} onClick={()=>setTab(k)} style={{background:tab===k?c+"22":"#13131a",border:`2px solid ${tab===k?c:"#2a2a3a"}`,borderRadius:12,padding:"10px 4px",cursor:"pointer",textAlign:"center",transition:"all .2s",boxShadow:tab===k?`0 4px 16px ${c}33`:"none"}}>
+                <button key={k} onClick={()=>setTab(k)} style={{background:tab===k?`linear-gradient(135deg,${c}33,${c}11)`:"transparent",border:`1px solid ${tab===k?c+"66":"#2a2a3a"}`,borderRadius:12,padding:"10px 4px",cursor:"pointer",textAlign:"center",transition:"all .2s",boxShadow:tab===k?`0 0 12px ${c}22`:"none"}}>
                   <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:".95rem",letterSpacing:2,display:"block",color:tab===k?"#f0f0f8":"#6b7280"}}>{l}</span>
                   <span style={{fontSize:".55rem",color:"rgba(255,255,255,.4)",fontWeight:700}}>{d}</span>
                 </button>
@@ -1237,10 +1278,11 @@ export default function App() {
           exId={detailEx}
           db={exDb}
           userImages={userImages}
+          userVideos={userVideos}
           onClose={()=>setDetailEx(null)}
           onUpdateEx={updateEx}
           onSaveImages={saveImages}
-          
+          onSaveVideo={saveVideo}
         />
       )}
 
