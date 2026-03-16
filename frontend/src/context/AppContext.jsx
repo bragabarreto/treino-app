@@ -68,6 +68,7 @@ export function AppProvider({ children }) {
       if (cloudData.plogs) setPlogs(p => p.length ? p : cloudData.plogs);
       if (cloudData.feedback) setMonthFeedback(p => ({ ...cloudData.feedback, ...p }));
       if (cloudData.videos) setUserVideos(p => ({ ...cloudData.videos, ...p }));
+      if (cloudData.logs) setLogs(p => ({ ...cloudData.logs, ...p }));
     }).catch(() => {});
   }, []);
 
@@ -87,7 +88,7 @@ export function AppProvider({ children }) {
 
   // ── LocalStorage persistence ─────────────────────────────────────────────
   useEffect(() => LS.set("tm7-marks", marks), [marks]);
-  useEffect(() => LS.set("tm7-logs", logs), [logs]);
+  useEffect(() => { LS.set("tm7-logs", logs); saveUserDataToCloud("logs", logs).catch(()=>{}); }, [logs]);
   useEffect(() => { LS.set("tm7-exdb", exDb); saveUserDataToCloud("exdb", exDb).catch(()=>{}); }, [exDb]);
   // userImages contém base64 → apenas localStorage (muito grande para o banco)
   useEffect(() => LS.set("tm7-imgs", userImages), [userImages]);
