@@ -289,5 +289,39 @@ Retorne APENAS JSON com esta estrutura:
     }
   }
 
+  // GET /api/user-data — carrega todos os dados do usuário
+  if (req.method === "GET" && path === "/user-data") {
+    const sql = await getDb();
+    if (!sql) return json(res, { data: {}, offline: true });
+    try {
+      const rows = await sql`SELECT data_key, data_value FROM user_data WHERE user_id = 'default'`;
+      const data = {};
+      rows.forEach(r => { data[r.data_key] = r.data_value; });
+      return json(res, { data });
+    } catch (e) {
+      return json(res, { data: {}, error: e.message });
+    }
+  }
+
+  // POST /api/user-data — salva/atualiza dado do usuário (upsert)
+  if (req.method === "POST" && path === "/user-data") {
+    const { key, value } = req.body;
+    if (!key) return json(res, { error: "Campo key obrigatório" }, 400);
+    const sql = await getDb();
+    if (!sql) return json(res, { ok: true, offline: true });
+    try {
+      const jsonValue = JSON.stringify(value);
+      await sql`
+        INSERT INTO user_data (user_id, data_key, data_value)
+        VALUES ('default', ${key}, ${jsonValue}::jsonb)
+        ON CONFLICT (user_id, data_key)
+        DO UPDATE SET data_value = ${jsonValue}::jsonb, updated_at = NOW()
+      `;
+      return json(res, { ok: true });
+    } catch (e) {
+      return json(res, { ok: false, error: e.message });
+    }
+  }
+
   return json(res, { error: "Rota não encontrada" }, 404);
 }

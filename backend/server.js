@@ -264,6 +264,45 @@ app.post("/api/calendar/mark", async (req, res) => {
   }
 });
 
+
+// ─── USER DATA — GET /api/user-data ──────────────────────────────────────────
+// Carrega todos os dados do usuário do banco
+app.get("/api/user-data", async (_req, res) => {
+  const sql = await getDb();
+  if (!sql) return res.json({ data: {}, offline: true });
+  try {
+    const rows = await sql`SELECT data_key, data_value FROM user_data WHERE user_id = 'default'`;
+    const data = {};
+    rows.forEach(r => { data[r.data_key] = r.data_value; });
+    res.json({ data });
+  } catch (e) {
+    console.error("[/api/user-data GET]", e.message);
+    res.json({ data: {}, error: e.message });
+  }
+});
+
+// ─── USER DATA — POST /api/user-data ─────────────────────────────────────────
+// Salva/atualiza um dado do usuário no banco (upsert)
+app.post("/api/user-data", async (req, res) => {
+  const { key, value } = req.body;
+  if (!key) return res.status(400).json({ error: "Campo key obrigatório" });
+  const sql = await getDb();
+  if (!sql) return res.json({ ok: true, offline: true });
+  try {
+    const jsonValue = JSON.stringify(value);
+    await sql`
+      INSERT INTO user_data (user_id, data_key, data_value)
+      VALUES ('default', ${key}, ${jsonValue}::jsonb)
+      ON CONFLICT (user_id, data_key)
+      DO UPDATE SET data_value = ${jsonValue}::jsonb, updated_at = NOW()
+    `;
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[/api/user-data POST]", e.message);
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Backend rodando em http://localhost:${PORT}`);
   console.log(`   API Key configurada: ${!!process.env.ANTHROPIC_API_KEY}`);
