@@ -1,14 +1,32 @@
 import { useState, useRef } from "react";
 import { compressImage } from "../../lib/imageUtils";
 
+const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+const hasCloudinary = !!(CLOUD_NAME && UPLOAD_PRESET);
+
+async function uploadToCloudinary(dataUrl) {
+  const formData = new FormData();
+  formData.append("file", dataUrl);
+  formData.append("upload_preset", UPLOAD_PRESET);
+  formData.append("folder", "treino-app");
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Cloudinary upload falhou");
+  const d = await res.json();
+  return d.secure_url;
+}
+
 export default function ImageUploadModal({ exId, exName, currentImages, onSave, onClose }) {
   const [imgs, setImgs] = useState(currentImages || []);
   const [dragging, setDragging] = useState(false);
-  const [compressing, setCompressing] = useState(false);
+  const [status, setStatus] = useState(""); // "compressing" | "uploading" | ""
   const fileRef = useRef();
 
   async function processFiles(files) {
-    setCompressing(true);
+    setStatus("compressing");
     const results = [];
     for (const f of Array.from(files)) {
       if (!f.type.startsWith("image/")) continue;
@@ -18,11 +36,30 @@ export default function ImageUploadModal({ exId, exName, currentImages, onSave, 
         r.readAsDataURL(f);
       });
       const compressed = await compressImage(dataUrl);
-      results.push(compressed);
+
+      if (hasCloudinary) {
+        try {
+          setStatus("uploading");
+          const url = await uploadToCloudinary(compressed);
+          results.push(url);
+        } catch {
+          // Cloudinary falhou → fallback para base64 local
+          results.push(compressed);
+        }
+      } else {
+        results.push(compressed);
+      }
     }
     setImgs(p => [...p, ...results]);
-    setCompressing(false);
+    setStatus("");
   }
+
+  const busy = status !== "";
+  const statusMsg = status === "compressing"
+    ? "⏳ Comprimindo..."
+    : status === "uploading"
+    ? "☁️ Enviando para a nuvem..."
+    : null;
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",padding:16}} onClick={onClose}>
@@ -30,6 +67,15 @@ export default function ImageUploadModal({ exId, exName, currentImages, onSave, 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.2rem",letterSpacing:3,color:"#f59e0b"}}>📷 IMAGENS — {exName}</h3>
           <button onClick={onClose} style={{background:"none",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer"}}>✕</button>
+        </div>
+
+        {/* Cloud status badge */}
+        <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:6,fontSize:".62rem",fontWeight:800}}>
+          {hasCloudinary ? (
+            <><span style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",display:"inline-block"}} /><span style={{color:"#4ade80"}}>Cloudinary ativo — fotos salvas na nuvem</span></>
+          ) : (
+            <><span style={{width:7,height:7,borderRadius:"50%",background:"#f59e0b",display:"inline-block"}} /><span style={{color:"#fbbf24"}}>Modo local — configure Cloudinary para salvar na nuvem</span></>
+          )}
         </div>
 
         {/* Drop zone */}
@@ -54,18 +100,24 @@ export default function ImageUploadModal({ exId, exName, currentImages, onSave, 
                 <img src={src} alt={`img${i}`} style={{width:"100%",height:80,objectFit:"cover",display:"block"}} />
                 <button onClick={()=>setImgs(p=>p.filter((_,j)=>j!==i))} style={{position:"absolute",top:3,right:3,background:"rgba(239,68,68,.8)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",fontSize:".6rem",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 {i<2 && <div style={{position:"absolute",bottom:3,left:3,background:"rgba(245,158,11,.9)",borderRadius:4,padding:"1px 6px",fontSize:".55rem",fontWeight:900,color:"#000"}}>ATIVA</div>}
+                {src.startsWith("https://res.cloudinary.com") && (
+                  <div style={{position:"absolute",top:3,left:3,background:"rgba(34,197,94,.9)",borderRadius:4,padding:"1px 5px",fontSize:".5rem",fontWeight:900,color:"#000"}}>☁</div>
+                )}
               </div>
             ))}
           </div>
         )}
 
-        <p style={{fontSize:".68rem",color:"#6b7280",marginBottom:12}}>As 2 primeiras imagens são exibidas como principais. Demais ficam salvas no banco.</p>
+        <p style={{fontSize:".68rem",color:"#6b7280",marginBottom:12}}>As 2 primeiras imagens são exibidas como principais.</p>
 
-        {compressing && <p style={{fontSize:".75rem",color:"#f59e0b",textAlign:"center",marginBottom:8}}>⏳ Comprimindo imagens...</p>}
+        {statusMsg && <p style={{fontSize:".75rem",color:"#f59e0b",textAlign:"center",marginBottom:8}}>{statusMsg}</p>}
 
         <div style={{display:"flex",gap:8}}>
           <button onClick={onClose} style={{flex:1,padding:10,borderRadius:10,border:"1px solid #2a2a3a",background:"#1a1a24",color:"#6b7280",fontWeight:800,cursor:"pointer",fontSize:".82rem"}}>Cancelar</button>
-          <button onClick={()=>{onSave(imgs);onClose();}} disabled={compressing} style={{flex:2,padding:10,borderRadius:10,border:"none",background:compressing?"#6b7280":"#f59e0b",color:"#000",fontWeight:900,cursor:compressing?"not-allowed":"pointer",fontSize:".82rem"}}>{compressing?"⏳ Processando...":"💾 Salvar Imagens"}</button>
+          <button onClick={()=>{onSave(imgs);onClose();}} disabled={busy}
+            style={{flex:2,padding:10,borderRadius:10,border:"none",background:busy?"#6b7280":"#f59e0b",color:"#000",fontWeight:900,cursor:busy?"not-allowed":"pointer",fontSize:".82rem"}}>
+            {busy ? statusMsg : "💾 Salvar Imagens"}
+          </button>
         </div>
       </div>
     </div>

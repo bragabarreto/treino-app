@@ -69,6 +69,7 @@ export function AppProvider({ children }) {
       if (cloudData.feedback) setMonthFeedback(p => ({ ...cloudData.feedback, ...p }));
       if (cloudData.videos) setUserVideos(p => ({ ...cloudData.videos, ...p }));
       if (cloudData.logs) setLogs(p => ({ ...cloudData.logs, ...p }));
+      if (cloudData.imgs) setUserImages(p => ({ ...cloudData.imgs, ...p }));
     }).catch(() => {});
   }, []);
 
@@ -90,8 +91,8 @@ export function AppProvider({ children }) {
   useEffect(() => LS.set("tm7-marks", marks), [marks]);
   useEffect(() => { LS.set("tm7-logs", logs); saveUserDataToCloud("logs", logs).catch(()=>{}); }, [logs]);
   useEffect(() => { LS.set("tm7-exdb", exDb); saveUserDataToCloud("exdb", exDb).catch(()=>{}); }, [exDb]);
-  // userImages contém base64 → apenas localStorage (muito grande para o banco)
-  useEffect(() => LS.set("tm7-imgs", userImages), [userImages]);
+  // userImages: agora sincroniza com nuvem (Cloudinary URLs são pequenas)
+  useEffect(() => { LS.set("tm7-imgs", userImages); saveUserDataToCloud("imgs", userImages).catch(()=>{}); }, [userImages]);
   useEffect(() => { LS.set("tm7-videos", userVideos); saveUserDataToCloud("videos", userVideos).catch(()=>{}); }, [userVideos]);
   useEffect(() => { if (allTreinos) { LS.set("tm7-treinos", allTreinos); saveUserDataToCloud("treinos", allTreinos).catch(()=>{}); } }, [allTreinos]);
   useEffect(() => { if (monthFeedback) { LS.set("tm7-feedback", monthFeedback); saveUserDataToCloud("feedback", monthFeedback).catch(()=>{}); } }, [monthFeedback]);
