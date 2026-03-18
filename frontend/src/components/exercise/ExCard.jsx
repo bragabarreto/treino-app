@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getImagesForEx } from "../../lib/imageUtils";
 
 const getToday = () => {
@@ -11,10 +11,22 @@ export default function ExCard({ exId, s, r, db, userImages, onOpen, logKey, log
   const name = ex?.name || exId.replace(/-/g," ").replace(/\b\w/g, c=>c.toUpperCase());
   const log = logs[logKey] || {};
   const imgs = getImagesForEx(exId, userImages, db);
-  const [thumbErr, setThumbErr] = useState(false);
+  const [imgIdx, setImgIdx] = useState(0);
   const hasUserImgs = userImages?.[exId]?.length > 0;
   const todayStr = getToday();
   const isDone = log.done && log.doneDate === todayStr;
+
+  // Reset quando o exercício muda OU quando imgs[0] muda (ex: userImages carregou da nuvem)
+  const img0 = imgs[0];
+  useEffect(() => setImgIdx(0), [exId, img0]);
+
+  function handleImgError() {
+    if (imgIdx < imgs.length - 1) {
+      setImgIdx(i => i + 1); // tenta próxima imagem da lista
+    } else {
+      setImgIdx(-1); // todas falharam → mostra emoji
+    }
+  }
 
   function toggleDone(e) {
     e.stopPropagation();
@@ -42,8 +54,14 @@ export default function ExCard({ exId, s, r, db, userImages, onOpen, logKey, log
           fontSize:"1.1rem",flexShrink:0,cursor:"pointer",overflow:"hidden",position:"relative",
           opacity: isDone ? 0.75 : 1,
         }}>
-          {!thumbErr
-            ? <img src={imgs[0]} alt={name} style={{width:46,height:46,objectFit:"cover"}} onError={()=>setThumbErr(true)} />
+          {imgIdx >= 0
+            ? <img
+                key={imgs[imgIdx]}
+                src={imgs[imgIdx]}
+                alt={name}
+                style={{width:46,height:46,objectFit:"cover"}}
+                onError={handleImgError}
+              />
             : <span>💪</span>
           }
           {hasUserImgs && <div style={{position:"absolute",bottom:2,right:2,width:9,height:9,background:"#f59e0b",borderRadius:"50%",border:"2px solid #13131a"}} />}
