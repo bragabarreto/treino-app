@@ -116,6 +116,18 @@ export function AppProvider({ children }) {
     }
   }
 
+  function markWorkoutComplete(tk) {
+    const now = new Date();
+    const dateKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    setMarks(prev => {
+      const current = prev[dateKey] || [];
+      if (current.includes(tk)) return prev;
+      const updated = [...current, tk];
+      saveMarkToCloud(dateKey, updated);
+      return { ...prev, [dateKey]: updated };
+    });
+  }
+
   async function saveMarkToCloud(dateKey, markArray) {
     try {
       await fetch("/api/calendar/mark", {
@@ -191,6 +203,7 @@ export function AppProvider({ children }) {
     page, setPage, tab, setTab,
     // Calendar
     calY, setCalY, calM, setCalM, marks, setMarks, syncStatus, saveMarkToCloud, getStats, dayStyle,
+    markWorkoutComplete,
     dayModal, setDayModal, dayOpts, setDayOpts,
     // Workout data
     logs, updateLog, exDb, updateEx, deleteEx,

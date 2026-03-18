@@ -189,9 +189,15 @@ ${feedback || "Otimize os treinos mantendo o volume e progressão adequados."}
 
 INSTRUÇÕES:
 - Retorne APENAS o JSON dos treinos atualizados, no mesmo formato do input
+- Atualize SOMENTE os treinos A e B (avulsos). NUNCA altere PA ou PB (são treinos fixos do personal trainer)
+- Os treinos A e B devem trabalhar grupos musculares DIFERENTES e COMPLEMENTARES aos de PA e PB
+- Analise PA e PB para identificar os grupos já trabalhados pelo personal e EVITE repeti-los em A e B
+- Cada treino deve ter 3 blocos com 3 exercícios cada
+- A e B devem ser diferentes entre si — jamais repita o mesmo grupo muscular primário nos dois
 - Mantenha a estrutura de blocos (blocos com nome e exercises)
 - Cada exercise tem: id (do banco de exercícios), s (séries, string), r (repetições, string)
 - Use IDs exatos do banco de exercícios fornecido
+- Incorpore o feedback do usuário, especialmente dificuldades e necessidades reportadas
 - Justifique brevemente as mudanças em um campo "justificativa" no JSON retornado
 - Não inclua markdown, apenas JSON puro
 

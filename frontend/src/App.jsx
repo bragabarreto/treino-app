@@ -14,16 +14,14 @@ import AddExerciseModal from "./components/exercise/AddExerciseModal";
 const globalCss = `
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700;900&display=swap');
   @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes fadeIn { from { opacity:0;transform:translateY(6px); } to { opacity:1;transform:translateY(0); } }
+  @keyframes fadeIn { from { opacity:0;transform:translateY(5px); } to { opacity:1;transform:translateY(0); } }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   input, textarea { font-family: 'DM Sans', sans-serif; }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 2px; }
-  .nav-btn { transition: all .25s cubic-bezier(.4,0,.2,1); }
-  .nav-btn:hover { opacity: 1 !important; transform: translateY(-1px); }
-  .ex-card:hover { border-color: #3b82f688 !important; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(59,130,246,.12); }
-  .workout-block { transition: box-shadow .2s; }
-  .workout-block:hover { box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: #1e1e2c; border-radius: 2px; }
+  .nav-btn { transition: color .2s, border-color .2s; }
+  .ex-card { transition: background .15s; }
+  .workout-block { transition: none; }
   .ex-img-wrap:hover .ex-img-hover { opacity: 1 !important; }
   .ex-img-wrap:hover img:first-child { opacity: 0; }
 `;
