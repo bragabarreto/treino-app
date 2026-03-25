@@ -7,6 +7,8 @@ const getToday = () => {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
 
+const BLOCK_LABELS = ["I", "II", "III"];
+
 export default function WorkoutBlock({ tk, onComplete }) {
   const { allTreinos, exDb, userImages, setDetailEx, logs, updateLog } = useApp();
   const t = allTreinos[tk];
@@ -21,6 +23,7 @@ export default function WorkoutBlock({ tk, onComplete }) {
   }).length;
   const total = allExercises.length;
   const pct = total > 0 ? Math.round(doneCount / total * 100) : 0;
+  const isDone = pct === 100;
 
   const completedRef = useRef(false);
   useEffect(() => {
@@ -34,28 +37,54 @@ export default function WorkoutBlock({ tk, onComplete }) {
 
   return (
     <>
-      {/* Overall progress bar */}
-      <div style={{background:"#13131a",border:"1px solid #1e1e2c",borderRadius:12,padding:"12px 16px",marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-          <span style={{fontSize:".62rem",fontWeight:800,color:"#4b5563",letterSpacing:1,textTransform:"uppercase"}}>
-            Progresso do treino de hoje
+      {/* Progress card */}
+      <div style={{
+        background:"var(--s2)",
+        border:`1px solid ${isDone ? "#22c55e44" : "var(--bd1)"}`,
+        borderRadius:14,
+        padding:"14px 16px",
+        marginBottom:12,
+        position:"relative",
+        overflow:"hidden",
+      }}>
+        {/* Top accent line */}
+        <div style={{
+          position:"absolute",top:0,left:0,right:0,height:1,
+          background:`linear-gradient(90deg,transparent,${isDone?"#22c55e":color}66,transparent)`,
+        }} />
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+          <span style={{fontSize:".58rem",fontWeight:800,color:"var(--t3)",letterSpacing:1.2,textTransform:"uppercase"}}>
+            Progresso hoje
           </span>
           <span style={{
-            fontFamily:"'Bebas Neue',sans-serif",fontSize:"1rem",letterSpacing:2,
-            color: pct===100 ? "#22c55e" : color,
+            fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.05rem",letterSpacing:2,
+            color: isDone ? "#22c55e" : color,
+            textShadow: isDone ? "0 0 10px #22c55e66" : `0 0 10px ${color}44`,
           }}>
             {doneCount}/{total}
           </span>
         </div>
-        <div style={{background:"#111118",borderRadius:99,height:5,overflow:"hidden"}}>
+
+        {/* Progress bar */}
+        <div style={{background:"var(--s1)",borderRadius:99,height:7,overflow:"hidden"}}>
           <div style={{
             width: pct + "%", height:"100%", borderRadius:99,
-            background: pct===100 ? "#22c55e" : `linear-gradient(90deg,${color},${color}bb)`,
-            transition:"width .4s cubic-bezier(.4,0,.2,1)",
+            background: isDone
+              ? "linear-gradient(90deg,#22c55e,#4ade80)"
+              : `linear-gradient(90deg,${color},${color}cc)`,
+            transition:"width .5s cubic-bezier(.4,0,.2,1)",
+            backgroundSize: isDone ? "auto" : "200% auto",
+            animation: !isDone && pct > 0 ? "shimmer 2.5s linear infinite" : "none",
           }} />
         </div>
-        {pct === 100 && (
-          <div style={{marginTop:8,fontSize:".68rem",color:"#4ade80",fontWeight:800,textAlign:"center"}}>
+
+        {isDone && (
+          <div style={{
+            marginTop:9,fontSize:".65rem",color:"#4ade80",fontWeight:800,
+            textAlign:"center",letterSpacing:.5,
+            animation:"slideUp .3s cubic-bezier(.2,0,.2,1)",
+          }}>
             ✓ Treino completo — marcado no calendário!
           </div>
         )}
@@ -64,20 +93,36 @@ export default function WorkoutBlock({ tk, onComplete }) {
       {/* Blocks */}
       {t.blocos.map((bl, bi) => (
         <div key={bi} className="workout-block"
-          style={{background:"#13131a",border:"1px solid #1e1e2c",borderRadius:13,marginBottom:8,overflow:"hidden"}}>
-          <div style={{padding:"9px 14px",borderBottom:"1px solid #111118",display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:3,height:14,borderRadius:2,background:color,flexShrink:0}} />
+          style={{
+            background:"var(--s2)",
+            border:"1px solid var(--bd1)",
+            borderRadius:14,
+            marginBottom:9,
+            overflow:"hidden",
+          }}>
+          {/* Block header */}
+          <div style={{
+            padding:"10px 14px",
+            borderBottom:"1px solid var(--bd1)",
+            display:"flex",alignItems:"center",gap:9,
+            background:`linear-gradient(90deg,${color}0a,transparent)`,
+          }}>
+            <div style={{width:3,height:16,borderRadius:2,background:color,flexShrink:0,boxShadow:`0 0 6px ${color}66`}} />
             <span style={{
-              background:color+"18",color,border:`1px solid ${color}30`,
-              borderRadius:5,padding:"2px 8px",fontSize:".62rem",fontWeight:900,letterSpacing:1,
+              background:`${color}18`,color,border:`1px solid ${color}30`,
+              borderRadius:6,padding:"2px 9px",
+              fontSize:".6rem",fontWeight:900,letterSpacing:1.5,
+              fontFamily:"'Bebas Neue',sans-serif",
             }}>
-              {["I","II","III"][bi]}
+              {BLOCK_LABELS[bi]}
             </span>
-            <span style={{fontWeight:700,fontSize:".8rem",color:"#c9ced6"}}>{bl.nome}</span>
+            <span style={{fontWeight:700,fontSize:".8rem",color:"var(--t2)"}}>{bl.nome}</span>
           </div>
+
           {bl.exercises.map((ex, ei) => (
             <ExCard key={ei} exId={ex.id} s={ex.s} r={ex.r} db={exDb} userImages={userImages}
-              onOpen={setDetailEx} logKey={`${tk}-${ex.id}`} logs={logs} onLog={updateLog} />
+              onOpen={setDetailEx} logKey={`${tk}-${ex.id}`} logs={logs} onLog={updateLog}
+              accentColor={color} />
           ))}
         </div>
       ))}
