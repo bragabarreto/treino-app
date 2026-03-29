@@ -33,6 +33,9 @@ const UNSPLASH_IMGS = {
   "prancha-alta":                   ["1571019614169-b6e6b99f1476","1534438327276-14e5300c3a48"],
   "abdominal-remador":              ["1571019614169-b6e6b99f1476","1567013193785-67ec4b7c2d30"],
   "rosca-direta-halter":            ["1581009146145-b5ef050c2e1e","1530822847-3a7b654f5adf"],
+  "prancha-bola":                   ["1571019614169-b6e6b99f1476","1534438327276-14e5300c3a48"],
+  "saltos-horizontais-unilateral":  ["1571019614169-b6e6b99f1476","1567954970-88c8a48befb3"],
+  "barra-com-apoio":                ["1571019614242-c5c5dee9f50b","1541534741976-14e5300c3a48"],
 };
 
 // ─── Função para obter imagens de um exercício ───────────────────────────────

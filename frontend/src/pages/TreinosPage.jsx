@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext";
 import WorkoutBlock from "../components/workout/WorkoutBlock";
 import ExtraWorkoutModal from "../components/workout/ExtraWorkoutModal";
 
-const BASE_TABS = [
+const TABS = [
   ["A",  "Avulso A",   "Seg", "#3b82f6"],
   ["B",  "Avulso B",   "Qua", "#22c55e"],
   ["PA", "Personal A", "Ter", "#a855f7"],
@@ -16,15 +16,12 @@ export default function TreinosPage() {
   const { tab, setTab, apiStatus, runAPITest, getAvulsoEligibility, setShowFeedbackModal, markWorkoutComplete, extraTreino, setExtraTreino, allTreinos, exDb } = useApp();
   const [toast, setToast] = useState(null);
   const [showExtraModal, setShowExtraModal] = useState(false);
+  const [showExtra, setShowExtra] = useState(false);
 
   const el = getAvulsoEligibility();
 
   const todayISO = new Date().toISOString().split("T")[0];
   const hasExtra = extraTreino?.date === todayISO;
-
-  const TABS = hasExtra
-    ? [...BASE_TABS, ["EX", "Extra", extraTreino.dia?.slice(0, 3) || "Hoje", "#f59e0b"]]
-    : BASE_TABS;
 
   function handleComplete(tk) {
     markWorkoutComplete(tk);
@@ -37,17 +34,17 @@ export default function TreinosPage() {
   return (
     <div style={{animation:"fadeIn .3s ease"}}>
 
-      {/* Tab selector */}
-      <div style={{display:"grid",gridTemplateColumns:`repeat(${TABS.length},1fr)`,gap:5,marginBottom:14}}>
+      {/* Tab selector — apenas A, B, PA, PB */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
         {TABS.map(([k, l, d, c]) => (
-          <button key={k} onClick={()=>setTab(k)} style={{
-            background: tab===k ? `${c}18` : "transparent",
-            border: `1px solid ${tab===k ? c+"44" : "#1e1e2c"}`,
+          <button key={k} onClick={()=>{setTab(k);setShowExtra(false);}} style={{
+            background: tab===k && !showExtra ? `${c}18` : "transparent",
+            border: `1px solid ${tab===k && !showExtra ? c+"44" : "#1e1e2c"}`,
             borderRadius: 11, padding: "9px 4px", cursor: "pointer",
             textAlign: "center", transition: "all .2s",
           }}>
-            <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize: TABS.length > 4 ? ".78rem" : ".9rem",letterSpacing:2,display:"block",color:tab===k?c:"#4b5563"}}>{l}</span>
-            <span style={{fontSize:".5rem",color:tab===k?c+"aa":"#2a2a3a",fontWeight:700,letterSpacing:1}}>{d}</span>
+            <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:".9rem",letterSpacing:2,display:"block",color:tab===k && !showExtra?c:"#4b5563"}}>{l}</span>
+            <span style={{fontSize:".5rem",color:tab===k && !showExtra?c+"aa":"#2a2a3a",fontWeight:700,letterSpacing:1}}>{d}</span>
           </button>
         ))}
       </div>
@@ -65,17 +62,31 @@ export default function TreinosPage() {
         )}
       </div>
 
-      {/* Workout content */}
-      {tab === "EX" && hasExtra ? (
-        <>
+      {/* Treino regular (A/B/PA/PB) */}
+      {!showExtra && (
+        <WorkoutBlock tk={tab} onComplete={handleComplete} />
+      )}
+
+      {/* Treino Extra ativo — secao separada */}
+      {showExtra && hasExtra && (
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:4,height:18,borderRadius:2,background:"#f59e0b"}} />
+              <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:"1.1rem",letterSpacing:3,color:"#f59e0b"}}>
+                {extraTreino.label || "TREINO EXTRA"}
+              </span>
+            </div>
+            <button onClick={()=>setShowExtra(false)} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:8,color:"#6b7280",padding:"4px 10px",cursor:"pointer",fontSize:".7rem",fontWeight:700}}>
+              Voltar
+            </button>
+          </div>
           <WorkoutBlock tk="EX" overrideTreino={extraTreino} onComplete={handleComplete} />
-          <button onClick={()=>{ setExtraTreino(null); setTab("A"); }}
-            style={{width:"100%",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:11,padding:"10px",marginTop:8,cursor:"pointer",color:"#fca5a5",fontWeight:800,fontSize:".76rem"}}>
+          <button onClick={()=>{ setExtraTreino(null); setShowExtra(false); }}
+            style={{width:"100%",background:"rgba(239,68,68,.06)",border:"1px solid rgba(239,68,68,.18)",borderRadius:11,padding:"10px",marginTop:8,cursor:"pointer",color:"#fca5a5",fontWeight:800,fontSize:".72rem"}}>
             Descartar Treino Extra
           </button>
-        </>
-      ) : (
-        <WorkoutBlock tk={tab} onComplete={handleComplete} />
+        </div>
       )}
 
       {/* Toast */}
@@ -94,7 +105,7 @@ export default function TreinosPage() {
       )}
 
       {/* Eligibility banner */}
-      {el.eligible && (
+      {!showExtra && el.eligible && (
         <div style={{background:"rgba(59,130,246,.05)",border:"1px solid rgba(59,130,246,.18)",borderRadius:12,padding:"12px 14px",marginTop:10}}>
           <div style={{fontSize:".65rem",color:"#4b5563",marginBottom:8}}>
             {el.completed}/{el.possible} avulsos ({Math.round(el.pct*100)}%) — elegivel para atualizacao
@@ -109,19 +120,36 @@ export default function TreinosPage() {
         </div>
       )}
 
-      {/* Extra workout CTA */}
-      {!hasExtra && (
-        <div style={{background:"rgba(245,158,11,.05)",border:"1px solid rgba(245,158,11,.15)",borderRadius:12,padding:"12px 14px",marginTop:10}}>
-          <div style={{fontSize:".65rem",color:"#92400e",marginBottom:8,fontWeight:700}}>
-            Quer treinar algo diferente hoje?
-          </div>
-          <button onClick={()=>setShowExtraModal(true)} style={{
-            width:"100%",background:"linear-gradient(135deg,#f59e0b,#d97706)",
-            border:"none",borderRadius:10,color:"#000",fontWeight:900,
-            padding:"10px 16px",cursor:"pointer",fontSize:".82rem",
-          }}>
-            Gerar Treino Extra
-          </button>
+      {/* Treino Extra — botao separado, fora das tabs */}
+      {!showExtra && (
+        <div style={{background:"rgba(245,158,11,.04)",border:"1px solid rgba(245,158,11,.12)",borderRadius:12,padding:"12px 14px",marginTop:10}}>
+          {hasExtra ? (
+            <>
+              <div style={{fontSize:".65rem",color:"#f59e0b",marginBottom:8,fontWeight:700}}>
+                Treino Extra gerado para hoje
+              </div>
+              <button onClick={()=>setShowExtra(true)} style={{
+                width:"100%",background:"linear-gradient(135deg,#f59e0b,#d97706)",
+                border:"none",borderRadius:10,color:"#000",fontWeight:900,
+                padding:"10px 16px",cursor:"pointer",fontSize:".82rem",
+              }}>
+                Abrir Treino Extra
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{fontSize:".65rem",color:"#92400e",marginBottom:8,fontWeight:700}}>
+                Quer fazer um treino a mais esta semana?
+              </div>
+              <button onClick={()=>setShowExtraModal(true)} style={{
+                width:"100%",background:"linear-gradient(135deg,#f59e0b,#d97706)",
+                border:"none",borderRadius:10,color:"#000",fontWeight:900,
+                padding:"10px 16px",cursor:"pointer",fontSize:".82rem",
+              }}>
+                Gerar Treino Extra com IA
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -129,7 +157,7 @@ export default function TreinosPage() {
       {showExtraModal && (
         <ExtraWorkoutModal
           onClose={()=>setShowExtraModal(false)}
-          onApply={(treino) => { setExtraTreino(treino); setTab("EX"); }}
+          onApply={(treino) => { setExtraTreino(treino); setShowExtra(true); }}
           currentTreinos={allTreinos}
           exDb={exDb}
         />

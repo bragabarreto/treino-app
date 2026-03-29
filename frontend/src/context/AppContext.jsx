@@ -18,13 +18,27 @@ export function AppProvider({ children }) {
   const [logs, setLogs] = useState(() => LS.get("tm7-logs", {}));
   const [exDb, setExDb] = useState(() => {
     const saved = LS.get("tm7-exdb", null);
-    return saved ? { ...EXERCISE_DB_DEFAULT, ...saved } : EXERCISE_DB_DEFAULT;
+    if (!saved) return EXERCISE_DB_DEFAULT;
+    // Deep merge: preserve images/videoId/steps from defaults when saved data lacks them
+    const merged = { ...EXERCISE_DB_DEFAULT };
+    for (const [id, data] of Object.entries(saved)) {
+      merged[id] = { ...(EXERCISE_DB_DEFAULT[id] || {}), ...data };
+    }
+    return merged;
   });
   const [userImages, setUserImages] = useState(() => LS.get("tm7-imgs", {}));
   const [userVideos, setUserVideos] = useState(() => LS.get("tm7-videos", {}));
   const [allTreinos, setAllTreinos] = useState(() => {
     const saved = LS.get("tm7-treinos", null);
-    return saved ? { ...ALL_TREINOS, ...saved } : ALL_TREINOS;
+    if (!saved) return ALL_TREINOS;
+    // Sempre usar PA/PB dos defaults (fonte da verdade do personal)
+    // a menos que o usuario tenha editado via modal (flag _edited)
+    return {
+      ...ALL_TREINOS,
+      ...saved,
+      PA: saved.PA?._edited ? saved.PA : ALL_TREINOS.PA,
+      PB: saved.PB?._edited ? saved.PB : ALL_TREINOS.PB,
+    };
   });
   const [monthFeedback, setMonthFeedback] = useState(() => LS.get("tm7-feedback", {}));
   const [rotina, setRotina] = useState(() => LS.get("tm7-rotina", {
@@ -63,8 +77,24 @@ export function AppProvider({ children }) {
   useEffect(() => {
     loadUserDataFromCloud().then(cloudData => {
       if (!cloudData) return;
-      if (cloudData.exdb) setExDb(p => ({ ...EXERCISE_DB_DEFAULT, ...cloudData.exdb, ...p }));
-      if (cloudData.treinos) setAllTreinos(p => ({ ...ALL_TREINOS, ...cloudData.treinos, ...p }));
+      if (cloudData.exdb) setExDb(p => {
+        const merged = { ...EXERCISE_DB_DEFAULT };
+        for (const [id, data] of Object.entries(cloudData.exdb)) {
+          merged[id] = { ...(EXERCISE_DB_DEFAULT[id] || {}), ...data };
+        }
+        // Local state on top (highest priority)
+        for (const [id, data] of Object.entries(p)) {
+          merged[id] = { ...(merged[id] || {}), ...data };
+        }
+        return merged;
+      });
+      if (cloudData.treinos) setAllTreinos(p => {
+        const merged = { ...ALL_TREINOS, ...cloudData.treinos, ...p };
+        // PA/PB: only use saved/cloud version if it was explicitly edited by user
+        merged.PA = (p.PA?._edited ? p.PA : cloudData.treinos.PA?._edited ? cloudData.treinos.PA : ALL_TREINOS.PA);
+        merged.PB = (p.PB?._edited ? p.PB : cloudData.treinos.PB?._edited ? cloudData.treinos.PB : ALL_TREINOS.PB);
+        return merged;
+      });
       if (cloudData.rotina) setRotina(p => cloudData.rotina);
       if (cloudData.plogs) setPlogs(p => p.length ? p : cloudData.plogs);
       if (cloudData.feedback) setMonthFeedback(p => ({ ...cloudData.feedback, ...p }));

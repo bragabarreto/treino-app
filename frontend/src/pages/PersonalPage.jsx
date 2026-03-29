@@ -138,7 +138,7 @@ export default function PersonalPage() {
           tk={editingTk}
           treino={allTreinos[editingTk]}
           exDb={exDb}
-          onSave={(tk, data) => setAllTreinos(p => ({...p, [tk]: data}))}
+          onSave={(tk, data) => setAllTreinos(p => ({...p, [tk]: {...data, _edited: true}}))}
           onClose={() => setEditingTk(null)}
         />
       )}
