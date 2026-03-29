@@ -1,7 +1,7 @@
 export const ALL_TREINOS = {
   // ── TREINO A AVULSO (Segunda) ──────────────────────────────────────────────
-  // Foco: Costas + Ombros + Cadeia Posterior + Bíceps + Core
-  // Complementa Personal B (que faz Glúteo/Quad + Costas/Remada + Ombros + Bíceps nas Ter/Sex)
+  // Foco: Costas (puxada/remada) + Ombros + Cadeia Posterior (stiff) + Bíceps + Core
+  // EVITA focos primários de PA (Peito, Quad, Tríceps) e PB (Glúteo, Panturrilha)
   A: { label:"Treino A Avulso", color:"#3b82f6", dia:"Segunda", blocos:[
     { nome:"Bloco I — Costas + Explosão", exercises:[
       {id:"puxada-frontal-pronada", s:"4", r:"10"},
@@ -21,9 +21,9 @@ export const ALL_TREINOS = {
   ]},
 
   // ── TREINO B AVULSO (Quarta) ───────────────────────────────────────────────
-  // Foco: Peito + Tríceps + Isquiotibiais + Core + Panturrilha
-  // EVITA: Glúteo (Personal B — Búlgaro, Leg Press), Costas (Personal B — Remada, Treino A)
-  // Complementa Personal A (mais volume de peito, tríceps diferente da máquina)
+  // Foco: Isquiotibiais + Posterior + Core anti-rotação + Panturrilha
+  // EVITA focos primários de PA (Peito, Quad) e PB (Glúteo, Costas pesada)
+  // Diferente de A (que faz Costas/Ombros/Bíceps)
   B: { label:"Treino B Avulso", color:"#22c55e", dia:"Quarta", blocos:[
     { nome:"Bloco I — Peito + Tríceps", exercises:[
       {id:"supino-plano-halteres", s:"4", r:"10"},
@@ -57,7 +57,8 @@ export const ALL_TREINOS = {
     ]},
     { nome:"Bloco III — Tríceps + Core + Potência", exercises:[
       {id:"triceps-maquina", s:"3", r:"15"},
-      {id:"prancha-alta", s:"3", r:"15"},
+      {id:"prancha-bola", s:"3", r:"30\""},
+      {id:"saltos-horizontais-unilateral", s:"3", r:"4/4"},
     ]},
   ]},
 
@@ -66,8 +67,8 @@ export const ALL_TREINOS = {
   PB: { label:"Personal — Treino B", color:"#ec4899", dia:"Ter/Sex", blocos:[
     { nome:"Bloco I — Glúteo + Costas + Core", exercises:[
       {id:"bulgaro-kb", s:"3", r:"10/10"},
-      {id:"remada-curvada", s:"3", r:"12"},
-      {id:"prancha-alta", s:"3", r:"40s"},
+      {id:"barra-com-apoio", s:"3", r:"12"},
+      {id:"prancha-alta", s:"3", r:"40\""},
     ]},
     { nome:"Bloco II — Pernas + Costas + Panturrilha", exercises:[
       {id:"leg-horizontal-unilateral", s:"3", r:"12/12"},

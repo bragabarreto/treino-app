@@ -1,6 +1,6 @@
 # CLAUDE.md — treino-app
 
-Aplicativo pessoal de musculação integrado com Claude AI para gerenciar treinos, exercícios, calendário e rotina semanal.
+Aplicativo pessoal de musculacao integrado com Claude AI para gerenciar treinos, exercicios, calendario e rotina semanal.
 
 ## Stack
 
@@ -19,27 +19,32 @@ Aplicativo pessoal de musculação integrado com Claude AI para gerenciar treino
 treino-app/
 ├── frontend/src/
 │   ├── App.jsx                  # Shell principal, roteamento por estado
-│   ├── context/AppContext.jsx   # Estado global (treinos, exercícios, calendário, rotina)
+│   ├── context/AppContext.jsx   # Estado global (treinos, exercicios, calendario, rotina)
 │   ├── data/
-│   │   ├── exerciseDatabase.js  # Banco de 36+ exercícios com músculos, steps, dicas
-│   │   ├── defaultTreinos.js    # Treinos padrão (A, B, PA, PB)
+│   │   ├── exerciseDatabase.js  # Banco de 80+ exercicios com musculos, steps, dicas
+│   │   ├── defaultTreinos.js    # Treinos padrao (A, B, PA, PB)
 │   │   └── constants.js
 │   ├── pages/
-│   │   ├── TreinosPage.jsx      # Treinos A e B (atualizáveis por IA)
-│   │   ├── PersonalPage.jsx     # Treinos PA e PB (fixos do personal trainer)
-│   │   ├── ExerciciosPage.jsx   # Biblioteca de exercícios
-│   │   ├── CalendarioPage.jsx   # Calendário de treinos realizados
+│   │   ├── TreinosPage.jsx      # Treinos A, B e Extra (avulsos, atualizaveis por IA)
+│   │   ├── PersonalPage.jsx     # Treinos PA e PB (editaveis manualmente)
+│   │   ├── ExerciciosPage.jsx   # Biblioteca de exercicios
+│   │   ├── CalendarioPage.jsx   # Calendario de treinos realizados
 │   │   └── RotinaPage.jsx       # Grade semanal por turno
 │   └── components/
 │       ├── Nav.jsx
 │       ├── calendar/DayModal.jsx
-│       ├── exercise/ExerciseModal.jsx
-│       ├── exercise/AddExerciseModal.jsx
-│       └── workout/FeedbackModal.jsx, UpdatePanel.jsx
+│       ├── exercise/ExerciseModal.jsx, AddExerciseModal.jsx
+│       └── workout/
+│           ├── WorkoutBlock.jsx          # Renderiza treino com progresso e logs
+│           ├── ExCard.jsx                # Card de exercicio com done/carga/obs
+│           ├── FeedbackModal.jsx         # Feedback mensal para IA
+│           ├── UpdatePanel.jsx           # Geracao de A/B via IA
+│           ├── EditPersonalWorkoutModal.jsx  # Edicao manual de PA/PB
+│           └── ExtraWorkoutModal.jsx     # Geracao de treino extra ad-hoc
 ├── backend/
 │   └── server.js                # Express API (dev local)
 ├── api/
-│   └── index.js                 # Vercel serverless function (produção)
+│   └── index.js                 # Vercel serverless function (producao)
 ├── package.json                 # Scripts raiz com concurrently
 └── vercel.json                  # Config de deploy
 ```
@@ -47,68 +52,108 @@ treino-app/
 ## Comandos de desenvolvimento
 
 ```bash
-npm run install:all   # Instala deps em todos os diretórios
+npm run install:all   # Instala deps em todos os diretorios
 npm run dev           # Inicia backend (3001) + frontend (5173) simultaneamente
-npm run build         # Build do frontend para produção
+npm run build         # Build do frontend para producao
 npm run start         # Inicia apenas o backend
 ```
 
-## Variáveis de ambiente
+## Variaveis de ambiente
 
 ```bash
 # backend/.env (desenvolvimento local)
 ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL=postgresql://...         # Neon DB (opcional — app funciona offline sem ele)
-PEXELS_API_KEY=...                    # Imagens de exercícios (opcional)
-UNSPLASH_ACCESS_KEY=...               # Imagens de exercícios (opcional)
+GOOGLE_API_KEY=...                    # Google Custom Search + YouTube (imagens/videos)
+GOOGLE_CSE_ID=...                     # Google Custom Search Engine ID
 FRONTEND_ORIGIN=http://localhost:5173 # CORS
 ```
 
-No Vercel, configurar as mesmas variáveis em Environment Variables.
+No Vercel, configurar as mesmas variaveis em Environment Variables.
 
 ## Endpoints da API
 
-| Método | Rota | Descrição |
+| Metodo | Rota | Descricao |
 |--------|------|-----------|
 | GET | `/api/health` | Health check + status da API key |
-| POST | `/api/ai` | Chamada Claude genérica |
+| POST | `/api/ai` | Chamada Claude generica |
 | POST | `/api/ai/search` | Claude com web_search (busca de imagens) |
-| POST | `/api/images/exercise` | Busca imagens via Pexels/Unsplash/Wger |
+| POST | `/api/images/exercise` | Busca imagens via Google + YouTube (PT-BR) |
 | POST | `/api/treinos/update` | Atualiza treinos A e B via IA com feedback |
-| GET | `/api/calendar` | Lê marcações do calendário (Neon DB) |
-| POST | `/api/calendar/mark` | Salva/remove marcação de dia |
-| GET | `/api/user-data` | Lê dados do usuário (Neon DB) |
-| POST | `/api/user-data` | Salva dado do usuário (upsert por key) |
+| POST | `/api/treinos/extra` | Gera treino extra ad-hoc via IA |
+| GET | `/api/calendar` | Le marcacoes do calendario (Neon DB) |
+| POST | `/api/calendar/mark` | Salva/remove marcacao de dia |
+| GET | `/api/user-data` | Le dados do usuario (Neon DB) |
+| POST | `/api/user-data` | Salva dado do usuario (upsert por key) |
 
 ## Modelos Claude utilizados
 
-- **`claude-haiku-4-5-20251001`** — geração de termos de busca, chamadas genéricas (rápido e barato)
-- **`claude-sonnet-4-6`** — atualização de treinos (tarefa complexa, precisa de maior capacidade)
+- **`claude-haiku-4-5-20251001`** — geracao de termos de busca, chamadas genericas (rapido e barato)
+- **`claude-sonnet-4-6`** — atualizacao de treinos e treino extra (tarefa complexa)
 
-## Lógica de treinos
+## Logica de treinos
 
-- **A e B**: treinos atualizáveis pelo usuário via IA com feedback mensal
-- **PA e PB**: treinos fixos do personal trainer — NUNCA alterar via IA
-- A IA analisa PA/PB para garantir que A e B cubram grupos musculares complementares
-- Estrutura de treino: 3 blocos × 3 exercícios, com `id` (do exerciseDatabase), `s` (séries), `r` (reps)
+### Tipos de treino
+- **A e B**: treinos avulsos atualizaveis pelo usuario via IA com feedback mensal
+- **PA e PB**: treinos do personal trainer — editaveis manualmente via `EditPersonalWorkoutModal`, NUNCA alterados por IA
+- **Extra (EX)**: treino ad-hoc gerado por IA sob demanda, valido apenas para o dia atual
 
-## Banco de exercícios
+### Regras de complementaridade
+- A IA extrai dinamicamente os musculos de PA/PB (`extractMuscleGroups`) e injeta no prompt
+- A e B DEVEM trabalhar grupos musculares DIFERENTES dos de PA/PB
+- A e B tambem devem ser diferentes entre si
+- Treino Extra evita exercicios ja presentes em A/B/PA/PB
 
-Definido em `frontend/src/data/exerciseDatabase.js`. Cada exercício tem:
+### Estrutura de treino
+```js
+{
+  label: "Nome do treino",
+  color: "#hex",
+  dia: "Seg/Qua/Ter/Sex",
+  blocos: [
+    {
+      nome: "Bloco I — Descricao",
+      exercises: [
+        { id: "exercicio-id", s: "3", r: "12" }  // s=series, r=reps
+      ]
+    }
+  ]
+}
+```
+
+### Treinos atuais do personal (PA/PB)
+**PA** (Ter/Sex): Peito (supino incl., crucifixo, apoio), Cadeia Posterior (terra), Quad (hack), Adutores (copenhagen), Triceps (maquina), Core (prancha bola), Potencia (saltos horiz.)
+**PB** (Ter/Sex): Gluteo (bulgaro, abducao), Costas (barra apoio, remada curvada), Pernas (leg press), Panturrilha (panturrilha leg), Ombros (extensao rotacao), Biceps (rosca polia), Core (prancha alta)
+
+## Banco de exercicios
+
+Definido em `frontend/src/data/exerciseDatabase.js`. 80+ exercicios. Cada exercicio tem:
 ```js
 {
   name, category, muscles, equipment,
-  description, steps: [], tips: []
+  description, steps: [], tips: [],
+  videoId, images: []
 }
 ```
 
 ## Estado global (AppContext)
 
-O `AppContext.jsx` centraliza todo o estado da aplicação:
-- `page` — página ativa (treinos | personal | calendario | exercicios | rotina)
+O `AppContext.jsx` centraliza todo o estado da aplicacao:
+- `page` — pagina ativa (treinos | personal | calendario | exercicios | rotina)
 - `allTreinos` — objeto com treinos A, B, PA, PB
-- `exDb` — banco de exercícios (pode ter exercícios customizados adicionados pelo usuário)
-- `userImages` / `userVideos` — mídia customizada por exercício
-- `monthFeedback` — histórico de feedbacks mensais
+- `extraTreino` — treino extra ad-hoc (expira diariamente)
+- `exDb` — banco de exercicios (pode ter exercicios customizados)
+- `userImages` / `userVideos` — midia customizada por exercicio
+- `monthFeedback` — historico de feedbacks mensais
+- `logs` — logs de execucao por exercicio (carga, tempo, obs, done)
+- `marks` — marcacoes do calendario (A, B, PA, PB, EX, miss)
+- `rotina` — grade semanal por turno
 
-Persistência: dados sincronizados com Neon DB via `/api/user-data`. Funciona em modo offline sem DATABASE_URL.
+Persistencia: localStorage + Neon DB via `/api/user-data`. Funciona offline sem DATABASE_URL.
+
+## Calendario
+
+Marcas possiveis por dia: A, B, PA, PB, EX, miss
+- Cores: A=#3b82f6, B=#22c55e, PA=#a855f7, PB=#ec4899, EX=#f59e0b, miss=#ef4444
+- Treinos concluidos (100% exercicios marcados) sao automaticamente registrados no calendario
+- Usuario pode editar marcas manualmente via DayModal
