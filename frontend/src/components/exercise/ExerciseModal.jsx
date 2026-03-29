@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getImagesForEx } from "../../lib/imageUtils";
 import { extractYTId } from "../../lib/helpers";
-import { callAI } from "../../lib/api";
+import { callAI, searchExerciseImages } from "../../lib/api";
 import ImageUploadModal from "./ImageUploadModal";
 import AIImageSearchModal from "./AIImageSearchModal";
 import AddExerciseModal from "./AddExerciseModal";
@@ -14,8 +14,10 @@ export default function ExerciseModal({ exId, db, userImages, userVideos, onClos
   const [showEdit, setShowEdit] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [webImgs, setWebImgs] = useState(null);
+  const [autoSearching, setAutoSearching] = useState(false);
   const [showYTInput, setShowYTInput] = useState(false);
   const [ytInput, setYtInput] = useState(userVideos?.[exId] || "");
+  const autoSearchDone = useRef(false);
 
   const ex = db[exId];
   if (!ex) return null;
@@ -23,6 +25,21 @@ export default function ExerciseModal({ exId, db, userImages, userVideos, onClos
   const hasUserImgs = userImages?.[exId]?.length > 0;
   const hasDbImgs = ex.images?.length > 0;
   const imgs = hasUserImgs ? userImages[exId] : (webImgs || getImagesForEx(exId, userImages, db));
+
+  // Auto-enrich: buscar imagens reais automaticamente quando não há userImages
+  useEffect(() => {
+    if (hasUserImgs || autoSearchDone.current) return;
+    autoSearchDone.current = true;
+    setAutoSearching(true);
+    searchExerciseImages(exId, db)
+      .then(urls => {
+        if (urls?.length) {
+          onSaveImages(exId, urls);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAutoSearching(false));
+  }, [exId]);
 
   // videoId: prefer user-linked video, then fallback to database videoId
   const userVideoUrl = userVideos?.[exId];
@@ -91,6 +108,7 @@ export default function ExerciseModal({ exId, db, userImages, userVideos, onClos
                 {hasUserImgs && <span style={{background:"rgba(245,158,11,.9)",color:"#000",borderRadius:6,padding:"2px 7px",fontSize:".58rem",fontWeight:900}}>📷 SUAS FOTOS</span>}
                 {!hasUserImgs && hasDbImgs && <span style={{background:"rgba(34,197,94,.85)",color:"#000",borderRadius:6,padding:"2px 7px",fontSize:".58rem",fontWeight:900}}>📷 FOTO REAL</span>}
                 {!hasUserImgs && !hasDbImgs && webImgs && <span style={{background:"rgba(59,130,246,.85)",color:"#fff",borderRadius:6,padding:"2px 7px",fontSize:".58rem",fontWeight:900}}>🔍 WEB</span>}
+                {autoSearching && <span style={{background:"rgba(59,130,246,.85)",color:"#fff",borderRadius:6,padding:"2px 7px",fontSize:".58rem",fontWeight:900}}>🔍 Buscando fotos...</span>}
                 {imgs.length > 0 && <span style={{background:"rgba(0,0,0,.7)",color:"rgba(255,255,255,.8)",borderRadius:6,padding:"2px 7px",fontSize:".58rem"}}>{imgIdx+1}/{imgs.length}</span>}
               </div>
             </div>

@@ -16,7 +16,7 @@ export default function WorkoutBlock({ tk, onComplete, overrideTreino }) {
   const todayStr = getToday();
   const allExercises = t.blocos.flatMap(bl => bl.exercises);
   const doneCount = allExercises.filter(ex => {
-    const log = logs[`${tk}-${ex.id}`] || {};
+    const log = logs[ex.id] || {};
     return log.done && log.doneDate === todayStr;
   }).length;
   const total = allExercises.length;
@@ -77,7 +77,7 @@ export default function WorkoutBlock({ tk, onComplete, overrideTreino }) {
           </div>
           {bl.exercises.map((ex, ei) => (
             <ExCard key={ei} exId={ex.id} s={ex.s} r={ex.r} db={exDb} userImages={userImages}
-              onOpen={setDetailEx} logKey={`${tk}-${ex.id}`} logs={logs} onLog={updateLog} />
+              onOpen={setDetailEx} logKey={ex.id} logs={logs} onLog={updateLog} />
           ))}
         </div>
       ))}

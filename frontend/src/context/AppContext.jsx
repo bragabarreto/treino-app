@@ -104,6 +104,34 @@ export function AppProvider({ children }) {
     }).catch(() => {});
   }, []);
 
+  // ── Log key migration (compound → simple) ────────────────────────────────
+  // Migra dados de carga/obs de chaves antigas "A-exercicio" para "exercicio"
+  const logsMigrated = useRef(false);
+  useEffect(() => {
+    if (logsMigrated.current) return;
+    logsMigrated.current = true;
+    // Aguarda 2s para cloud sync completar antes de migrar
+    const timer = setTimeout(() => {
+      setLogs(prev => {
+        const migrated = { ...prev };
+        let changed = false;
+        for (const [key, value] of Object.entries(prev)) {
+          const match = key.match(/^(A|B|PA|PB|EX)-(.+)$/);
+          if (match) {
+            const exId = match[2];
+            // Copiar dados para chave simples se não existe ou está vazia
+            if ((!migrated[exId]?.carga && value.carga) || (!migrated[exId]?.obs && value.obs) || (!migrated[exId]?.tempo && value.tempo)) {
+              migrated[exId] = { ...(migrated[exId] || {}), ...value };
+              changed = true;
+            }
+          }
+        }
+        return changed ? migrated : prev;
+      });
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // ── Calendar cloud sync ──────────────────────────────────────────────────
   useEffect(() => {
     setSyncStatus("syncing");

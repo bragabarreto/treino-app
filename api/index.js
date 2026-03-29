@@ -76,12 +76,17 @@ export default async function handler(req, res) {
       "hipertrofia.org",
       "treinoeperformance.com.br",
       "dicasdemusculacao.net",
+      "dicasdemusculacao.com",
+      "maisesporte.com.br",
+      "treinemuito.com",
       "gironoticias.com.br",
       "vigorefit.com.br",
       "educacaofisica.com.br",
       "bodybuilding.com.br",
+      "bodybuilding.com",
       "umcorpoperfeito.com.br",
       "atleta.com.br",
+      "acefitness.org",
     ];
     const siteFilter = SITES_BR.map(s => `site:${s}`).join(" OR ");
 
@@ -208,6 +213,20 @@ Retorne APENAS JSON válido:
           });
         }
       } catch(_) {}
+    }
+
+    // 6. Complementar imagens com YouTube thumbnails dos videos encontrados
+    if (images.length < 4 && videos.length > 0) {
+      videos.forEach(v => {
+        if (images.length < 9 && !images.find(i => i.url.includes(v.videoId))) {
+          images.push({
+            url: `https://img.youtube.com/vi/${v.videoId}/maxresdefault.jpg`,
+            thumb: `https://img.youtube.com/vi/${v.videoId}/hqdefault.jpg`,
+            source: "YouTube",
+            title: v.title,
+          });
+        }
+      });
     }
 
     return json(res, {

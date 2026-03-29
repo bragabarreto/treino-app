@@ -161,7 +161,12 @@ Terms should be specific and include body part + movement type. Example: ["lat p
   }
 
   console.log(`[/api/images/exercise] ${exName}: ${allUrls.length} imagens encontradas`);
-  res.json({ urls: allUrls.slice(0, 6), terms: searchTerms });
+  res.json({
+    images: allUrls.slice(0, 9),
+    urls: allUrls.slice(0, 6),
+    terms: searchTerms,
+    nomeBR: exName,
+  });
 });
 
 // ─── Helper: extrair grupos musculares de um treino ────────────────────────
