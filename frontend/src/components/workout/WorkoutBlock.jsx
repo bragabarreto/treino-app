@@ -7,9 +7,9 @@ const getToday = () => {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 };
 
-export default function WorkoutBlock({ tk, onComplete }) {
+export default function WorkoutBlock({ tk, onComplete, overrideTreino }) {
   const { allTreinos, exDb, userImages, setDetailEx, logs, updateLog } = useApp();
-  const t = allTreinos[tk];
+  const t = overrideTreino || allTreinos[tk];
   if (!t) return null;
   const color = t.color || "#3b82f6";
 

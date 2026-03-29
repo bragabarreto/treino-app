@@ -1,13 +1,16 @@
+import { useState } from "react";
 import { useApp } from "../context/AppContext";
+import EditPersonalWorkoutModal from "../components/workout/EditPersonalWorkoutModal";
 
 const ROMAN = ["I", "II", "III"];
 
 export default function PersonalPage() {
   const {
-    allTreinos, exDb,
+    allTreinos, setAllTreinos, exDb,
     plogs, setPlogs, pInput, setPInput, pType, setPType,
     fotoData, setFotoData, pLoading, pResult, fileRef, savePersonalLog,
   } = useApp();
+  const [editingTk, setEditingTk] = useState(null);
 
   return (
     <div style={{animation:"fadeIn .3s ease"}}>
@@ -21,9 +24,14 @@ export default function PersonalPage() {
         if (!t) return null;
         return (
           <div key={tk} style={{background:"#13131a",border:"1px solid #1e1e2c",borderRadius:13,padding:14,marginBottom:10}}>
-            <span style={{background:color+"18",color,border:`1px solid ${color}30`,borderRadius:20,padding:"3px 11px",fontSize:".62rem",fontWeight:900,display:"inline-block",marginBottom:12}}>
-              {t.label} — {t.dia}
-            </span>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <span style={{background:color+"18",color,border:`1px solid ${color}30`,borderRadius:20,padding:"3px 11px",fontSize:".62rem",fontWeight:900,display:"inline-block"}}>
+                {t.label} — {t.dia}
+              </span>
+              <button onClick={()=>setEditingTk(tk)} style={{background:`${color}12`,border:`1px solid ${color}30`,borderRadius:8,color,padding:"4px 10px",cursor:"pointer",fontSize:".65rem",fontWeight:800}}>
+                Editar
+              </button>
+            </div>
             {t.blocos.map((bl, bi) => (
               <div key={bi} style={{marginBottom: bi < t.blocos.length-1 ? 10 : 0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
@@ -125,6 +133,15 @@ export default function PersonalPage() {
           </div>
         ))
       }
+      {editingTk && (
+        <EditPersonalWorkoutModal
+          tk={editingTk}
+          treino={allTreinos[editingTk]}
+          exDb={exDb}
+          onSave={(tk, data) => setAllTreinos(p => ({...p, [tk]: data}))}
+          onClose={() => setEditingTk(null)}
+        />
+      )}
     </div>
   );
 }

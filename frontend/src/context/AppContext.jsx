@@ -37,11 +37,12 @@ export function AppProvider({ children }) {
     6:[{t:"m",a:["🚴 Bicicleta"]},{t:"t",a:[]},{t:"n",a:[]}],
   }));
   const [plogs, setPlogs] = useState(() => LS.get("tm7-plogs", []));
+  const [extraTreino, setExtraTreino] = useState(() => LS.get("tm7-extra", null));
 
   // UI-only state
   const [detailEx, setDetailEx] = useState(null);
   const [dayModal, setDayModal] = useState(null);
-  const [dayOpts, setDayOpts] = useState({A:false,B:false,PA:false,PB:false,miss:false});
+  const [dayOpts, setDayOpts] = useState({A:false,B:false,PA:false,PB:false,EX:false,miss:false});
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showUpdate, setShowUpdate] = useState(false);
   const [searchQ, setSearchQ] = useState("");
@@ -98,6 +99,14 @@ export function AppProvider({ children }) {
   useEffect(() => { if (monthFeedback) { LS.set("tm7-feedback", monthFeedback); saveUserDataToCloud("feedback", monthFeedback).catch(()=>{}); } }, [monthFeedback]);
   useEffect(() => { LS.set("tm7-rotina", rotina); saveUserDataToCloud("rotina", rotina).catch(()=>{}); }, [rotina]);
   useEffect(() => { LS.set("tm7-plogs", plogs); saveUserDataToCloud("plogs", plogs).catch(()=>{}); }, [plogs]);
+  useEffect(() => { LS.set("tm7-extra", extraTreino); if (extraTreino) saveUserDataToCloud("extra", extraTreino).catch(()=>{}); }, [extraTreino]);
+  // Auto-expirar treino extra se não for de hoje
+  useEffect(() => {
+    if (extraTreino?.date) {
+      const today = new Date().toISOString().split("T")[0];
+      if (extraTreino.date !== today) setExtraTreino(null);
+    }
+  }, []);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   function updateEx(id, data) { setExDb(p => ({ ...p, [id]: data })); }
@@ -160,6 +169,7 @@ export function AppProvider({ children }) {
     if (mk.includes("A") && mk.includes("B")) return { bg: "rgba(251,191,36,.2)", bd: "#fbbf24" };
     if (mk.includes("A")) return { bg: "rgba(59,130,246,.25)", bd: "#3b82f6" };
     if (mk.includes("B")) return { bg: "rgba(34,197,94,.25)", bd: "#22c55e" };
+    if (mk.includes("EX")) return { bg: "rgba(245,158,11,.2)", bd: "#f59e0b" };
     return { bg: "#1a1a24", bd: "transparent" };
   }
 
@@ -218,6 +228,8 @@ export function AppProvider({ children }) {
     detailEx, setDetailEx,
     // Rotina
     rotina, setRotina, addRT, setAddRT, addRI, setAddRI,
+    // Extra treino
+    extraTreino, setExtraTreino,
     // Personal log
     plogs, setPlogs, pInput, setPInput, pType, setPType,
     fotoData, setFotoData, pLoading, pResult, fileRef,

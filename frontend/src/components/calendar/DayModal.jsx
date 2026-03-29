@@ -12,9 +12,9 @@ export default function DayModal() {
           {DIAS_PT[new Date(calY,calM,dayModal).getDay()]} {dayModal} — {MESES[calM].slice(0,3)}
         </h3>
         <p style={{fontSize:".7rem",color:"#6b7280",marginBottom:12}}>Selecione todos os treinos realizados:</p>
-        {[["A","Treino Avulso A","#3b82f6"],["B","Treino Avulso B","#22c55e"],["PA","Personal — Treino A","#a855f7"],["PB","Personal — Treino B","#ec4899"],["miss","Não treinei hoje","#ef4444"]].map(([k,l,c]) => (
+        {[["A","Treino Avulso A","#3b82f6"],["B","Treino Avulso B","#22c55e"],["PA","Personal — Treino A","#a855f7"],["PB","Personal — Treino B","#ec4899"],["EX","Treino Extra","#f59e0b"],["miss","Nao treinei hoje","#ef4444"]].map(([k,l,c]) => (
           <div key={k}
-            onClick={()=>{if(k==="miss")setDayOpts({A:false,B:false,PA:false,PB:false,miss:!dayOpts.miss});else setDayOpts(p=>({...p,miss:false,[k]:!p[k]}));}}
+            onClick={()=>{if(k==="miss")setDayOpts({A:false,B:false,PA:false,PB:false,EX:false,miss:!dayOpts.miss});else setDayOpts(p=>({...p,miss:false,[k]:!p[k]}));}}
             style={{padding:"11px 14px",borderRadius:11,background:dayOpts[k]?c+"22":"#1a1a24",border:`2px solid ${dayOpts[k]?c:"#2a2a3a"}`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,marginBottom:8,transition:"all .2s"}}>
             <div style={{width:18,height:18,borderRadius:"50%",background:dayOpts[k]?c:"transparent",border:`2px solid ${c}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
               {dayOpts[k]&&<div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/>}
@@ -34,7 +34,7 @@ export default function DayModal() {
               const k=`${calY}-${calM}-${dayModal}`;
               const chosen=[];
               if(dayOpts.miss)chosen.push("miss");
-              else["A","B","PA","PB"].forEach(t=>{if(dayOpts[t])chosen.push(t);});
+              else["A","B","PA","PB","EX"].forEach(t=>{if(dayOpts[t])chosen.push(t);});
               if(!chosen.length){const nm={...marks};delete nm[k];setMarks(nm);saveMarkToCloud(k,[]);}
               else{setMarks(p=>({...p,[k]:chosen}));saveMarkToCloud(k,chosen);}
               setDayModal(null);

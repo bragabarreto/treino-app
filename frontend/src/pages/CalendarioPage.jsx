@@ -74,7 +74,7 @@ export default function CalendarioPage() {
               const lbl=mk.includes("miss")?"✗":mk.filter(x=>x!=="miss").join("+");
               cells.push(
                 <div key={d}
-                  onClick={()=>{setDayOpts({A:mk.includes("A"),B:mk.includes("B"),PA:mk.includes("PA"),PB:mk.includes("PB"),miss:mk.includes("miss")});setDayModal(d);}}
+                  onClick={()=>{setDayOpts({A:mk.includes("A"),B:mk.includes("B"),PA:mk.includes("PA"),PB:mk.includes("PB"),EX:mk.includes("EX"),miss:mk.includes("miss")});setDayModal(d);}}
                   style={{aspectRatio:"1",borderRadius:8,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",border:`1px solid ${isT?"#3b82f6":bd}`,background:bg,transition:"all .15s",fontSize:".68rem",fontWeight:700}}>
                   <span style={{color:isT?"#60a5fa":"#f0f0f8"}}>{d}</span>
                   {lbl&&<span style={{fontSize:".42rem",color:"#fbbf24",lineHeight:1,marginTop:1}}>{lbl}</span>}
@@ -87,7 +87,7 @@ export default function CalendarioPage() {
 
         {/* Legend */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
-          {[["#3b82f6","Avulso A"],["#22c55e","Avulso B"],["#fbbf24","A+B"],["#a855f7","Personal"],["#f97316","Misto"],["#ef4444","Faltou"]].map(([c,l])=>(
+          {[["#3b82f6","Avulso A"],["#22c55e","Avulso B"],["#fbbf24","A+B"],["#a855f7","Personal"],["#f59e0b","Extra"],["#f97316","Misto"],["#ef4444","Faltou"]].map(([c,l])=>(
             <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:".62rem",color:"#6b7280"}}><div style={{width:9,height:9,borderRadius:3,background:c+"66",border:`1px solid ${c}`}}/>{l}</div>
           ))}
         </div>

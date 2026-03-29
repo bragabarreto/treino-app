@@ -226,6 +226,17 @@ Retorne APENAS JSON válido:
     const availableExercises = Object.entries(exerciseDb)
       .map(([id, ex]) => `${id}: ${ex.name} (${ex.category}, ${(ex.muscles || []).join(", ")})`)
       .join("\n");
+
+    function extractMuscles(treino) {
+      if (!treino?.blocos) return "não definido";
+      const m = new Set();
+      treino.blocos.forEach(bl => bl.exercises.forEach(ex => {
+        const d = exerciseDb?.[ex.id];
+        if (d?.muscles) d.muscles.forEach(x => m.add(x));
+      }));
+      return [...m].join(", ") || "não identificado";
+    }
+
     const prompt = `Você é personal trainer especialista em periodização.
 
 TREINOS ATUAIS (JSON):
@@ -236,8 +247,22 @@ ${availableExercises}
 
 SOLICITAÇÃO: ${feedback || "Otimize os treinos mantendo volume e progressão adequados."}
 
-Retorne APENAS JSON com esta estrutura:
-{"justificativa":"Explicação das mudanças...","treinos":{...mesmo formato de ALL_TREINOS...}}`;
+MÚSCULOS JÁ TRABALHADOS PELO PERSONAL (EVITAR EM A/B):
+- Personal A (PA): ${extractMuscles(currentTreinos.PA)}
+- Personal B (PB): ${extractMuscles(currentTreinos.PB)}
+
+INSTRUÇÕES:
+- Atualize SOMENTE A e B. NUNCA altere PA ou PB (treinos fixos do personal)
+- REGRA CRÍTICA: A e B devem trabalhar grupos musculares DIFERENTES e COMPLEMENTARES aos de PA e PB
+- NÃO repita os músculos listados acima como foco primário em A e B
+- Priorize grupos sub-trabalhados: isquiotibiais, panturrilha, core anti-rotação, deltóide posterior
+- A e B devem ser diferentes entre si
+- 3 blocos com 3 exercícios cada, use IDs exatos do banco
+- Cada exercise: {id, s (séries string), r (reps string)}
+- Incorpore o feedback do usuário
+
+Retorne APENAS JSON:
+{"justificativa":"Explicação das mudanças...","treinos":{...mesmo formato...}}`;
     try {
       const r = await anthropic.messages.create({
         model, max_tokens: 4000,
@@ -254,6 +279,57 @@ Retorne APENAS JSON com esta estrutura:
     } catch (e) {
       return json(res, { error: e.message }, 500);
     }
+  }
+
+  // ─── POST /api/treinos/extra ──────────────────────────────────────────────
+  if (req.method === "POST" && path === "/treinos/extra") {
+    const { request, currentTreinos, exerciseDb, model = "claude-sonnet-4-6" } = req.body;
+    if (!request || !exerciseDb) return json(res, { error: "campos obrigatórios" }, 400);
+
+    const availableExercises = Object.entries(exerciseDb)
+      .map(([id, ex]) => `${id}: ${ex.name} (${ex.category}, ${(ex.muscles || []).join(", ")})`)
+      .join("\n");
+
+    function summarize(treino) {
+      if (!treino?.blocos) return "não definido";
+      return treino.blocos.map(bl => `${bl.nome}: ${bl.exercises.map(ex => ex.id).join(", ")}`).join(" | ");
+    }
+
+    const dias = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+    const hoje = dias[new Date().getDay()];
+
+    const prompt = `Você é um personal trainer especialista.
+
+O usuário quer fazer um TREINO EXTRA hoje (${hoje}), além dos treinos regulares.
+
+PEDIDO DO USUÁRIO: ${request}
+
+TREINOS REGULARES (EVITAR sobreposição):
+- A (Seg): ${summarize(currentTreinos?.A)}
+- B (Qua): ${summarize(currentTreinos?.B)}
+- PA (Ter/Sex): ${summarize(currentTreinos?.PA)}
+- PB (Ter/Sex): ${summarize(currentTreinos?.PB)}
+
+EXERCÍCIOS DISPONÍVEIS:
+${availableExercises}
+
+INSTRUÇÕES:
+- 2-3 blocos, 2-3 exercícios por bloco
+- EVITE exercícios dos treinos regulares
+- Use IDs exatos do banco
+- Adapte ao pedido do usuário
+
+Retorne APENAS JSON:
+{"label":"Treino Extra — [desc]","color":"#f59e0b","dia":"${hoje}","blocos":[{"nome":"Bloco I — ...","exercises":[{"id":"id","s":"3","r":"12"}]}],"justificativa":"..."}`;
+
+    try {
+      const r = await anthropic.messages.create({ model, max_tokens: 3000, messages: [{ role: "user", content: prompt }] });
+      const txt = r.content.filter(b => b.type === "text").map(b => b.text).join("");
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s === -1) return json(res, { text: txt, parsed: null });
+      try { return json(res, { text: txt, parsed: JSON.parse(txt.slice(s, e + 1)) }); }
+      catch { return json(res, { text: txt, parsed: null }); }
+    } catch (e) { return json(res, { error: e.message }, 500); }
   }
 
   // GET /api/calendar — fetch all marks

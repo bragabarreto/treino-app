@@ -19,7 +19,7 @@ async function getDb() {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173" }));
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
 app.use(express.json({ limit: "2mb" }));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -164,6 +164,19 @@ Terms should be specific and include body part + movement type. Example: ["lat p
   res.json({ urls: allUrls.slice(0, 6), terms: searchTerms });
 });
 
+// ─── Helper: extrair grupos musculares de um treino ────────────────────────
+function extractMuscleGroups(treino, exerciseDb) {
+  if (!treino?.blocos) return "não definido";
+  const muscles = new Set();
+  treino.blocos.forEach(bl => {
+    bl.exercises.forEach(ex => {
+      const dbEntry = exerciseDb?.[ex.id];
+      if (dbEntry?.muscles) dbEntry.muscles.forEach(m => muscles.add(m));
+    });
+  });
+  return [...muscles].join(", ") || "não identificado";
+}
+
 // ─── ATUALIZAÇÃO DE TREINOS COM IA ──────────────────────────────────────────
 app.post("/api/treinos/update", async (req, res) => {
   const { currentTreinos, feedback, exerciseDb, model = "claude-sonnet-4-6" } = req.body;
@@ -176,6 +189,9 @@ app.post("/api/treinos/update", async (req, res) => {
     .map(([id, ex]) => `${id}: ${ex.name} (${ex.category}, ${(ex.muscles || []).join(", ")})`)
     .join("\n");
 
+  const musculosPA = extractMuscleGroups(currentTreinos.PA, exerciseDb);
+  const musculosPB = extractMuscleGroups(currentTreinos.PB, exerciseDb);
+
   const prompt = `Você é um personal trainer especialista em periodização e planejamento de treinos.
 
 TREINOS ATUAIS (JSON):
@@ -187,13 +203,18 @@ ${availableExercises}
 SOLICITAÇÃO DO USUÁRIO:
 ${feedback || "Otimize os treinos mantendo o volume e progressão adequados."}
 
+MÚSCULOS JÁ TRABALHADOS PELO PERSONAL (EVITAR EM A/B):
+- Personal A (PA): ${musculosPA}
+- Personal B (PB): ${musculosPB}
+
 INSTRUÇÕES:
 - Retorne APENAS o JSON dos treinos atualizados, no mesmo formato do input
 - Atualize SOMENTE os treinos A e B (avulsos). NUNCA altere PA ou PB (são treinos fixos do personal trainer)
-- Os treinos A e B devem trabalhar grupos musculares DIFERENTES e COMPLEMENTARES aos de PA e PB
-- Analise PA e PB para identificar os grupos já trabalhados pelo personal e EVITE repeti-los em A e B
-- Cada treino deve ter 3 blocos com 3 exercícios cada
+- REGRA CRÍTICA: Os treinos A e B devem trabalhar grupos musculares DIFERENTES e COMPLEMENTARES aos de PA e PB
+- Analise os músculos listados acima de PA e PB e NÃO os repita como foco primário em A e B
+- Priorize grupos sub-trabalhados pelo personal: isquiotibiais, panturrilha, core anti-rotação, deltóide posterior, mobilidade
 - A e B devem ser diferentes entre si — jamais repita o mesmo grupo muscular primário nos dois
+- Cada treino deve ter 3 blocos com 3 exercícios cada
 - Mantenha a estrutura de blocos (blocos com nome e exercises)
 - Cada exercise tem: id (do banco de exercícios), s (séries, string), r (repetições, string)
 - Use IDs exatos do banco de exercícios fornecido
@@ -231,6 +252,90 @@ Formato de resposta:
     }
   } catch (err) {
     console.error("[/api/treinos/update]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── TREINO EXTRA AD-HOC ────────────────────────────────────────────────────
+app.post("/api/treinos/extra", async (req, res) => {
+  const { request, currentTreinos, exerciseDb, model = "claude-sonnet-4-6" } = req.body;
+
+  if (!request || !exerciseDb) {
+    return res.status(400).json({ error: "Campos 'request' e 'exerciseDb' obrigatórios" });
+  }
+
+  const availableExercises = Object.entries(exerciseDb)
+    .map(([id, ex]) => `${id}: ${ex.name} (${ex.category}, ${(ex.muscles || []).join(", ")})`)
+    .join("\n");
+
+  function summarizeTreino(treino) {
+    if (!treino?.blocos) return "não definido";
+    return treino.blocos.map(bl =>
+      `${bl.nome}: ${bl.exercises.map(ex => ex.id).join(", ")}`
+    ).join(" | ");
+  }
+
+  const dias = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+  const hoje = dias[new Date().getDay()];
+
+  const prompt = `Você é um personal trainer especialista.
+
+O usuário quer fazer um TREINO EXTRA hoje (${hoje}), além dos treinos regulares.
+
+PEDIDO DO USUÁRIO: ${request}
+
+TREINOS REGULARES DO USUÁRIO (para EVITAR sobreposição):
+- Treino A (Segunda): ${summarizeTreino(currentTreinos?.A)}
+- Treino B (Quarta): ${summarizeTreino(currentTreinos?.B)}
+- Personal A (Ter/Sex): ${summarizeTreino(currentTreinos?.PA)}
+- Personal B (Ter/Sex): ${summarizeTreino(currentTreinos?.PB)}
+
+EXERCÍCIOS DISPONÍVEIS NO BANCO:
+${availableExercises}
+
+INSTRUÇÕES:
+- Crie um treino específico para o pedido do usuário
+- O treino deve ter 2-3 blocos com 2-3 exercícios cada (treino mais curto que os regulares)
+- EVITE repetir exercícios que já estão nos treinos regulares acima
+- Priorize exercícios do banco disponível. Use IDs exatos.
+- Se o pedido for vago, crie algo equilibrado focando grupos sub-trabalhados
+- Adapte volume (séries/reps) ao tipo de treino pedido
+
+Retorne APENAS JSON puro, sem markdown:
+{
+  "label": "Treino Extra — [descrição curta]",
+  "color": "#f59e0b",
+  "dia": "${hoje}",
+  "blocos": [
+    {"nome": "Bloco I — ...", "exercises": [{"id": "exercicio-id", "s": "3", "r": "12"}]}
+  ],
+  "justificativa": "Breve explicação de por que estes exercícios foram escolhidos"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model,
+      max_tokens: 3000,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const txt = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+
+    const s = txt.indexOf("{");
+    const e = txt.lastIndexOf("}");
+    if (s === -1) return res.json({ text: txt, parsed: null });
+
+    try {
+      const parsed = JSON.parse(txt.slice(s, e + 1));
+      res.json({ text: txt, parsed });
+    } catch {
+      res.json({ text: txt, parsed: null });
+    }
+  } catch (err) {
+    console.error("[/api/treinos/extra]", err.message);
     res.status(500).json({ error: err.message });
   }
 });
