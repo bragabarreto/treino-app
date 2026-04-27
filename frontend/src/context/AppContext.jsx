@@ -52,6 +52,7 @@ export function AppProvider({ children }) {
   }));
   const [plogs, setPlogs] = useState(() => LS.get("tm7-plogs", []));
   const [extraTreino, setExtraTreino] = useState(() => LS.get("tm7-extra", null));
+  const [workoutHistory, setWorkoutHistory] = useState(() => LS.get("tm7-history", []));
 
   // UI-only state
   const [detailEx, setDetailEx] = useState(null);
@@ -158,6 +159,7 @@ export function AppProvider({ children }) {
   useEffect(() => { LS.set("tm7-rotina", rotina); saveUserDataToCloud("rotina", rotina).catch(()=>{}); }, [rotina]);
   useEffect(() => { LS.set("tm7-plogs", plogs); saveUserDataToCloud("plogs", plogs).catch(()=>{}); }, [plogs]);
   useEffect(() => { LS.set("tm7-extra", extraTreino); if (extraTreino) saveUserDataToCloud("extra", extraTreino).catch(()=>{}); }, [extraTreino]);
+  useEffect(() => { LS.set("tm7-history", workoutHistory); }, [workoutHistory]);
   // Auto-expirar treino extra se não for de hoje
   useEffect(() => {
     if (extraTreino?.date) {
@@ -251,16 +253,35 @@ export function AppProvider({ children }) {
     return { eligible: isEndOfMonth && pct > 0.5 && !alreadyUpdated, pct, completed, possible };
   }
 
+  function archiveWorkout(type, data) {
+    const entry = {
+      id: Date.now(),
+      type, // "personal" | "avulso" | "extra"
+      data: JSON.parse(JSON.stringify(data)),
+      date: new Date().toLocaleDateString("pt-BR"),
+    };
+    setWorkoutHistory(p => [entry, ...p].slice(0, 30));
+  }
+
   async function savePersonalLog() {
-    const content = pType === "text" ? pInput.trim() : (fotoData ? "[FOTO] " : "") + pInput.trim();
-    if (!content && !fotoData) { alert("Adicione conteúdo."); return; }
+    if (!pInput.trim() && !fotoData) { alert("Adicione conteúdo."); return; }
     setPLoading(true); setPResult("");
+    const textNote = pInput.trim();
+    const prompt = `Analise este treino do personal e responda em português: grupos musculares por bloco, exercícios principais, e recomendação de grupos para os treinos avulsos (segunda e quarta) evitando sobreposição.\n\nTreino:\n${textNote || "(ver imagem)"}`;
+    const messageContent = fotoData
+      ? [
+          { type: "image", source: { type: "base64", media_type: fotoData.split(";")[0].split(":")[1], data: fotoData.split(",")[1] } },
+          { type: "text", text: prompt }
+        ]
+      : prompt;
     try {
-      const txt = await callAI([{ role: "user", content: `Analise este treino do personal e responda em português: grupos musculares por bloco, exercícios principais, e recomendação de grupos para os treinos avulsos (segunda e quarta) evitando sobreposição.\n\nTreino:\n${content}` }]);
-      setPlogs(p => [{ id: Date.now(), date: new Date().toLocaleDateString("pt-BR"), type: pType, content: content.slice(0, 500), analysis: txt, foto: pType === "foto" ? fotoData : null }, ...p]);
-      setPResult("✅ Salvo!\n\n" + txt); setPInput(""); setFotoData(null);
+      const txt = await callAI([{ role: "user", content: messageContent }], 1500);
+      setPlogs(p => [{ id: Date.now(), date: new Date().toLocaleDateString("pt-BR"), type: pType, content: (textNote || "(análise de foto)").slice(0, 500), analysis: txt, foto: pType === "foto" ? fotoData : null }, ...p]);
+      setPResult("✅ Salvo!\n\n" + txt);
+      setPInput(""); setFotoData(null);
+      if (fileRef.current) fileRef.current.value = "";
     } catch(e) {
-      setPlogs(p => [{ id: Date.now(), date: new Date().toLocaleDateString("pt-BR"), type: pType, content, analysis: "", foto: pType === "foto" ? fotoData : null }, ...p]);
+      setPlogs(p => [{ id: Date.now(), date: new Date().toLocaleDateString("pt-BR"), type: pType, content: textNote || "(foto)", analysis: "", foto: pType === "foto" ? fotoData : null }, ...p]);
       setPResult("Salvo (sem análise: " + e.message + ")");
     }
     setPLoading(false);
@@ -292,6 +313,8 @@ export function AppProvider({ children }) {
     plogs, setPlogs, pInput, setPInput, pType, setPType,
     fotoData, setFotoData, pLoading, pResult, fileRef,
     savePersonalLog,
+    // Histórico arquivado
+    workoutHistory, setWorkoutHistory, archiveWorkout,
     // API
     apiStatus, apiMsg, runAPITest,
   };

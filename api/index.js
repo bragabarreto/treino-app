@@ -351,6 +351,112 @@ Retorne APENAS JSON:
     } catch (e) { return json(res, { error: e.message }, 500); }
   }
 
+  // ─── POST /api/treinos/parse-personal ────────────────────────────────────────
+  // Extrai estrutura de treino a partir de foto ou texto (visão AI)
+  if (req.method === "POST" && path === "/treinos/parse-personal") {
+    const { image, text, exerciseDb } = req.body;
+    if (!image && !text) return json(res, { error: "image ou text obrigatório" }, 400);
+
+    const availableExercises = Object.entries(exerciseDb || {})
+      .slice(0, 120)
+      .map(([id, ex]) => `${id}: ${ex.name} (${(ex.muscles || []).join(", ")})`)
+      .join("\n");
+
+    const textPrompt = `Analise o treino abaixo e extraia sua estrutura completa em formato JSON.
+${text ? `\nTEXTO DO TREINO:\n${text}\n` : ""}
+EXERCÍCIOS DO BANCO (use estes IDs exatos sempre que possível):
+${availableExercises}
+
+INSTRUÇÕES:
+- Identifique label, dia(s) da semana e blocos com exercícios
+- Para cada exercício, mapeie para o ID mais próximo do banco acima
+- Se não houver correspondência, crie um ID descritivo em kebab-case (ex: "agachamento-smith")
+- Séries/reps: use os valores do treino ou padrão "3"/"10-12"
+
+Retorne APENAS JSON válido (sem texto extra):
+{"label":"Nome do Treino","dia":"Ter/Sex","blocos":[{"nome":"Bloco I — Descrição","exercises":[{"id":"id-exato","s":"3","r":"12"}]}]}`;
+
+    const messageContent = image
+      ? [
+          { type: "image", source: { type: "base64", media_type: image.split(";")[0].split(":")[1], data: image.split(",")[1] } },
+          { type: "text", text: textPrompt }
+        ]
+      : textPrompt;
+
+    try {
+      const r = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: messageContent }] });
+      const txt = r.content.filter(b => b.type === "text").map(b => b.text).join("");
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s === -1) return json(res, { text: txt, parsed: null });
+      try { return json(res, { text: txt, parsed: JSON.parse(txt.slice(s, e + 1)) }); }
+      catch { return json(res, { text: txt, parsed: null }); }
+    } catch (e) { return json(res, { error: e.message }, 500); }
+  }
+
+  // ─── POST /api/treinos/generate-avulsos ──────────────────────────────────────
+  // Gera treinos avulsos A/B ou A/B/C com base nos treinos do personal + feedback
+  if (req.method === "POST" && path === "/treinos/generate-avulsos") {
+    const { personalTreinos, feedback, format = "AB", exerciseDb, model = "claude-sonnet-4-6" } = req.body;
+    if (!exerciseDb) return json(res, { error: "exerciseDb obrigatório" }, 400);
+
+    const availableExercises = Object.entries(exerciseDb)
+      .map(([id, ex]) => `${id}: ${ex.name} (${ex.category || ""}, ${(ex.muscles || []).join(", ")})`)
+      .join("\n");
+
+    function extractMusclesFromTreino(treino) {
+      if (!treino?.blocos) return "";
+      const m = new Set();
+      treino.blocos.forEach(bl => bl.exercises.forEach(ex => {
+        const d = exerciseDb?.[ex.id];
+        if (d?.muscles) d.muscles.forEach(x => m.add(x));
+      }));
+      return [...m].join(", ") || "não identificado";
+    }
+
+    const personalDetails = Object.entries(personalTreinos || {})
+      .map(([key, t]) => `${key} (${t.label}, ${t.dia}): ${extractMusclesFromTreino(t)}`)
+      .join("\n");
+
+    const labels = format === "ABC" ? ["A", "B", "C"] : ["A", "B"];
+    const COLORS = { A: "#3b82f6", B: "#22c55e", C: "#f59e0b" };
+    const DIAS = { A: "Segunda", B: "Quarta", C: "Sexta" };
+
+    const exampleEntry = (l) => `"${l}":{"label":"Treino ${l} — ...","color":"${COLORS[l]}","dia":"${DIAS[l]}","blocos":[{"nome":"Bloco I — ...","exercises":[{"id":"id-exato","s":"3","r":"12"}]}]}`;
+    const exampleJson = `{${labels.map(exampleEntry).join(",")}}`;
+
+    const prompt = `Você é personal trainer especialista em periodização. Gere ${labels.length} treinos avulsos complementares.
+
+TREINOS DO PERSONAL (MÚSCULOS JÁ TRABALHADOS — NÃO REPETIR como foco em avulsos):
+${personalDetails}
+
+EXERCÍCIOS DISPONÍVEIS:
+${availableExercises}
+
+FEEDBACK DO USUÁRIO:
+${feedback || "Sem feedback específico — use bom senso esportivo."}
+
+INSTRUÇÕES CRÍTICAS:
+- Gere ${labels.length} treinos avulsos (${labels.join(", ")}) que complementem o personal
+- REGRA: Cada avulso deve trabalhar grupos musculares DIFERENTES dos listados acima
+- Os treinos avulsos devem ser diferentes entre si
+- 3 blocos com 3 exercícios cada por treino
+- Use APENAS IDs exatos do banco de exercícios acima
+- Cada exercise: {id, s (séries string), r (repetições string)}
+- Incorpore as preferências e necessidades do feedback
+
+Retorne APENAS JSON válido:
+{"justificativa":"Explicação clara das escolhas musculares e de volume...","treinos":${exampleJson}}`;
+
+    try {
+      const r = await anthropic.messages.create({ model, max_tokens: 5000, messages: [{ role: "user", content: prompt }] });
+      const txt = r.content.filter(b => b.type === "text").map(b => b.text).join("");
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s === -1) return json(res, { text: txt, parsed: null });
+      try { return json(res, { text: txt, parsed: JSON.parse(txt.slice(s, e + 1)) }); }
+      catch { return json(res, { text: txt, parsed: null }); }
+    } catch (e) { return json(res, { error: e.message }, 500); }
+  }
+
   // GET /api/calendar — fetch all marks
   if (req.method === "GET" && path === "/calendar") {
     const sql = await getDb();
