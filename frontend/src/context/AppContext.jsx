@@ -89,11 +89,12 @@ export function AppProvider({ children }) {
         }
         return merged;
       });
-      if (cloudData.treinos) setAllTreinos(p => {
-        const merged = { ...ALL_TREINOS, ...cloudData.treinos, ...p };
-        // PA/PB: only use saved/cloud version if it was explicitly edited by user
-        merged.PA = (p.PA?._edited ? p.PA : cloudData.treinos.PA?._edited ? cloudData.treinos.PA : ALL_TREINOS.PA);
-        merged.PB = (p.PB?._edited ? p.PB : cloudData.treinos.PB?._edited ? cloudData.treinos.PB : ALL_TREINOS.PB);
+      if (cloudData.treinos) setAllTreinos(() => {
+        // Cloud é a fonte de verdade — substitui o localStorage por completo
+        const merged = { ...ALL_TREINOS, ...cloudData.treinos };
+        // PA/PB: cloud editado pelo usuário tem prioridade, senão usa default
+        merged.PA = cloudData.treinos.PA?._edited ? cloudData.treinos.PA : ALL_TREINOS.PA;
+        merged.PB = cloudData.treinos.PB?._edited ? cloudData.treinos.PB : ALL_TREINOS.PB;
         return merged;
       });
       if (cloudData.rotina) setRotina(p => cloudData.rotina);
