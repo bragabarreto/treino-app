@@ -73,10 +73,13 @@ export function AppProvider({ children }) {
   const [apiMsg, setApiMsg] = useState("");
   const [syncStatus, setSyncStatus] = useState("idle");
   const fileRef = useRef();
+  // Impede que o useEffect de persistência sobrescreva o cloud antes do sync inicial
+  const cloudSynced = useRef(false);
 
   // ── Cloud load on mount ──────────────────────────────────────────────────
   useEffect(() => {
     loadUserDataFromCloud().then(cloudData => {
+      cloudSynced.current = true;
       if (!cloudData) return;
       if (cloudData.exdb) setExDb(p => {
         const merged = { ...EXERCISE_DB_DEFAULT };
@@ -155,7 +158,7 @@ export function AppProvider({ children }) {
   // userImages: agora sincroniza com nuvem (Cloudinary URLs são pequenas)
   useEffect(() => { LS.set("tm7-imgs", userImages); saveUserDataToCloud("imgs", userImages).catch(()=>{}); }, [userImages]);
   useEffect(() => { LS.set("tm7-videos", userVideos); saveUserDataToCloud("videos", userVideos).catch(()=>{}); }, [userVideos]);
-  useEffect(() => { if (allTreinos) { LS.set("tm7-treinos", allTreinos); saveUserDataToCloud("treinos", allTreinos).catch(()=>{}); } }, [allTreinos]);
+  useEffect(() => { if (allTreinos) { LS.set("tm7-treinos", allTreinos); if (cloudSynced.current) saveUserDataToCloud("treinos", allTreinos).catch(()=>{}); } }, [allTreinos]);
   useEffect(() => { if (monthFeedback) { LS.set("tm7-feedback", monthFeedback); saveUserDataToCloud("feedback", monthFeedback).catch(()=>{}); } }, [monthFeedback]);
   useEffect(() => { LS.set("tm7-rotina", rotina); saveUserDataToCloud("rotina", rotina).catch(()=>{}); }, [rotina]);
   useEffect(() => { LS.set("tm7-plogs", plogs); saveUserDataToCloud("plogs", plogs).catch(()=>{}); }, [plogs]);
