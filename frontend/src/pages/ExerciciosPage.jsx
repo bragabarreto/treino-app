@@ -8,6 +8,9 @@ const CATEGORY_COLORS = {
   "Ombros":"#06b6d4","Bíceps":"#10b981","Tríceps":"#f59e0b","Pernas":"#f97316",
   "Cadeia Posterior":"#ec4899","Glúteo":"#a855f7","Adutores":"#e879f9",
   "Panturrilha":"#84cc16","Core":"#22c55e","Funcional":"#14b8a6","Antebraço":"#fb923c",
+  "Joelho":"#f43f5e","Quadril":"#d946ef","Tornozelo":"#0ea5e9","Lombar":"#eab308",
+  "Mobilidade":"#2dd4bf","Alongamento":"#a3e635","Pliometria":"#fb7185","Agilidade":"#38bdf8",
+  "Costas/Pernas":"#6366f1","Glúteos":"#a855f7",
 };
 
 export default function ExerciciosPage() {

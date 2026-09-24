@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSave, onClose }) {
+export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, currentVideoId, onSave, onSaveVideo, onClose }) {
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -9,6 +9,12 @@ export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSav
   const [terms, setTerms] = useState([]);
   const [nomeBR, setNomeBR] = useState("");
   const [activeVideo, setActiveVideo] = useState(null);
+  const [linkedVideo, setLinkedVideo] = useState(currentVideoId || null);
+
+  function linkVideo(videoId) {
+    onSaveVideo?.(exId, `https://www.youtube.com/watch?v=${videoId}`);
+    setLinkedVideo(videoId);
+  }
 
   async function search() {
     setLoading(true); setError(""); setImages([]); setVideos([]); setSelected([]); setTerms([]); setNomeBR(""); setActiveVideo(null);
@@ -117,10 +123,24 @@ export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSav
         {/* ── VÍDEOS ── */}
         {videos.length > 0 && !loading && (
           <div>
-            <p style={{fontSize:".72rem",fontWeight:900,letterSpacing:1.5,color:"#9ca3af",textTransform:"uppercase",marginBottom:10}}>▶ Vídeos de Execução (YouTube)</p>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <p style={{fontSize:".72rem",fontWeight:900,letterSpacing:1.5,color:"#9ca3af",textTransform:"uppercase",margin:0}}>▶ Vídeos de Execução (YouTube)</p>
+              <span style={{fontSize:".62rem",color:linkedVideo?"#22c55e":"#6b7280"}}>{linkedVideo ? "✓ vídeo vinculado" : "toque em ✓ para vincular"}</span>
+            </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {videos.map((v, i) => (
-                <div key={i} style={{background:"#1a1a24",border:"1px solid #2a2a3a",borderRadius:12,overflow:"hidden"}}>
+              {videos.map((v, i) => {
+                const isLinked = linkedVideo === v.videoId;
+                const useBtn = (
+                  <button
+                    onClick={e=>{ e.stopPropagation(); if (!isLinked) linkVideo(v.videoId); }}
+                    title={isLinked ? "Vídeo vinculado a este exercício" : "Vincular este vídeo ao exercício"}
+                    style={{flexShrink:0,background:isLinked?"#22c55e":"rgba(34,197,94,.12)",border:`1px solid ${isLinked?"#22c55e":"rgba(34,197,94,.4)"}`,borderRadius:7,color:isLinked?"#000":"#4ade80",padding:"5px 9px",fontSize:".64rem",fontWeight:900,cursor:isLinked?"default":"pointer",whiteSpace:"nowrap"}}
+                  >
+                    {isLinked ? "✓ Vinculado" : "✓ Usar"}
+                  </button>
+                );
+                return (
+                <div key={i} style={{background:"#1a1a24",border:`1px solid ${isLinked?"#22c55e":"#2a2a3a"}`,borderRadius:12,overflow:"hidden"}}>
                   {activeVideo === v.videoId ? (
                     <div>
                       <iframe
@@ -129,10 +149,13 @@ export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSav
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
                       />
-                      <button onClick={()=>setActiveVideo(null)} style={{width:"100%",background:"none",border:"none",borderTop:"1px solid #2a2a3a",color:"#6b7280",padding:"7px",fontSize:".72rem",cursor:"pointer"}}>✕ Fechar vídeo</button>
+                      <div style={{display:"flex",gap:6,padding:8,borderTop:"1px solid #2a2a3a",alignItems:"center"}}>
+                        {useBtn}
+                        <button onClick={()=>setActiveVideo(null)} style={{flex:1,background:"none",border:"none",color:"#6b7280",padding:"5px",fontSize:".72rem",cursor:"pointer"}}>✕ Fechar vídeo</button>
+                      </div>
                     </div>
                   ) : (
-                    <div style={{display:"flex",alignItems:"center",gap:10,padding:8,cursor:"pointer"}} onClick={()=>setActiveVideo(v.videoId)}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:8,cursor:"pointer"}} onClick={()=>setActiveVideo(v.videoId)}>
                       <div style={{position:"relative",flexShrink:0}}>
                         <img src={v.thumb} alt={v.title} style={{width:100,height:60,objectFit:"cover",borderRadius:8,display:"block"}} onError={e=>e.target.style.display="none"} />
                         <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -145,11 +168,15 @@ export default function AIImageSearchModal({ exId, exName, exDb: exDbProp, onSav
                         <p style={{fontSize:".75rem",fontWeight:700,color:"#f0f0f8",margin:0,lineHeight:1.3,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{v.title}</p>
                         <p style={{fontSize:".62rem",color:"#6b7280",margin:"3px 0 0"}}>{v.channel}</p>
                       </div>
-                      <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{flexShrink:0,background:"none",border:"1px solid #3b3b4a",borderRadius:7,color:"#9ca3af",padding:"4px 8px",fontSize:".6rem",textDecoration:"none"}}>↗</a>
+                      <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0,alignItems:"stretch"}}>
+                        {useBtn}
+                        <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{background:"none",border:"1px solid #3b3b4a",borderRadius:7,color:"#9ca3af",padding:"3px 8px",fontSize:".6rem",textDecoration:"none",textAlign:"center"}}>↗ abrir</a>
+                      </div>
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

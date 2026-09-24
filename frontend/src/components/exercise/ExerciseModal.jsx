@@ -231,7 +231,9 @@ export default function ExerciseModal({ exId, db, userImages, userVideos, onClos
           exId={exId}
           exName={name}
           exDb={db}
+          currentVideoId={activeVideoId}
           onSave={urls => { onSaveImages(exId, [...(userImages?.[exId]||[]), ...urls]); setWebImgs(null); }}
+          onSaveVideo={onSaveVideo}
           onClose={() => setShowAISearch(false)}
         />
       )}
